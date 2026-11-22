@@ -1,7 +1,9 @@
 package io.roadie.innertube
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InnerTubeClientTest {
@@ -28,5 +30,21 @@ class InnerTubeClientTest {
         assertEquals("Car Test Video", videos[0].title)
         assertEquals("Roadie Channel", videos[0].channel)
         assertEquals("4:20", videos[0].durationText)
+    }
+
+    @Test
+    fun `parsePlayerResponse surfaces playability error reason`() {
+        val sample = """
+            {
+              "playabilityStatus": {
+                "status": "LOGIN_REQUIRED",
+                "reason": "Sign in to confirm your age"
+              }
+            }
+        """.trimIndent()
+        val client = InnerTubeClient()
+        val result = client.parsePlayerResponse("abc123", Json.parseToJsonElement(sample).jsonObject)
+        assertTrue(result is StreamResult.Error)
+        assertEquals("Sign in to confirm your age", (result as StreamResult.Error).reason)
     }
 }

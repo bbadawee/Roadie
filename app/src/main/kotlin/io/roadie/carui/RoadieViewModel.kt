@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.roadie.innertube.InnerTubeClient
 import io.roadie.innertube.ResolvedStream
+import io.roadie.innertube.StreamResult
 import io.roadie.innertube.VideoItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,8 +50,12 @@ class RoadieViewModel(
         _state.update { it.copy(showKeyboard = visible) }
     }
 
-    fun setParkedMode(parked: Boolean) {
-        _state.update { it.copy(isParkedMode = parked) }
+    fun toggleParkedMode() {
+        _state.update { it.copy(isParkedMode = !it.isParkedMode) }
+    }
+
+    fun clearError() {
+        _state.update { it.copy(errorMessage = null) }
     }
 
     fun loadHome() {
@@ -86,13 +91,13 @@ class RoadieViewModel(
     fun openVideo(video: VideoItem) {
         viewModelScope.launch {
             _state.update { it.copy(loadingStream = true, showKeyboard = false, errorMessage = null) }
-            val stream = client.resolveStream(video.id)
-            _state.update {
-                it.copy(
-                    currentStream = stream,
-                    loadingStream = false,
-                    errorMessage = if (stream == null) "Failed to resolve playback stream." else null
-                )
+            when (val result = client.resolveStream(video.id)) {
+                is StreamResult.Success -> _state.update {
+                    it.copy(currentStream = result.stream, loadingStream = false)
+                }
+                is StreamResult.Error -> _state.update {
+                    it.copy(loadingStream = false, errorMessage = result.reason)
+                }
             }
         }
     }

@@ -1,6 +1,8 @@
 package io.roadie.carui
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,8 +28,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocalParking
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -39,26 +43,34 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import io.roadie.innertube.ResolvedStream
@@ -72,17 +84,26 @@ fun RoadieApp(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
-    val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
+    var player by remember { mutableStateOf<Player?>(null) }
+
+    DisposableEffect(context) {
+        val token = SessionToken(
+            context,
+            ComponentName(context.packageName, "io.roadie.app.RoadiePlaybackService")
+        )
+        val future = MediaController.Builder(context, token).buildAsync()
+        future.addListener(
+            { runCatching { player = future.get() } },
+            ContextCompat.getMainExecutor(context)
+        )
+        onDispose {
+            MediaController.releaseFuture(future)
+            player = null
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose { player.release() }
-    }
-
-    LaunchedEffect(state.currentStream?.videoId) {
+    LaunchedEffect(state.currentStream?.videoId, player) {
+        val activePlayer = player ?: return@LaunchedEffect
         val stream = state.currentStream ?: return@LaunchedEffect
         val item = MediaItem.Builder()
             .setUri(stream.streamUrl)
@@ -91,12 +112,13 @@ fun RoadieApp(
                 MediaMetadata.Builder()
                     .setTitle(stream.title)
                     .setArtist(stream.channel)
+                    .setArtworkUri(Uri.parse(stream.thumbnailUrl))
                     .build()
             )
             .build()
-        player.setMediaItem(item)
-        player.prepare()
-        player.play()
+        activePlayer.setMediaItem(item)
+        activePlayer.prepare()
+        activePlayer.play()
     }
 
     RoadieTheme {
@@ -106,57 +128,89 @@ fun RoadieApp(
                 .background(CarColors.Background)
         ) {
             val metrics = CarViewportMetrics(maxWidth.value, maxHeight.value)
-
-            Row(modifier = Modifier.fillMaxSize()) {
-                CarSidebar(
-                    activeTab = state.activeTab,
-                    onSelectTab = viewModel::selectTab,
-                    onRefresh = viewModel::loadHome
+            val baseDensity = LocalDensity.current
+            val scaledDensity = remember(baseDensity, metrics.contentScale) {
+                Density(
+                    density = baseDensity.density * metrics.contentScale,
+                    fontScale = baseDensity.fontScale
                 )
+            }
 
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    val stream = state.currentStream
-                    if (stream != null) {
-                        CarWatchView(
-                            stream = stream,
-                            player = player,
-                            wideMode = metrics.useWideWatchLayout,
-                            isParkedMode = state.isParkedMode,
-                            onBack = viewModel::closeWatch,
-                            onSelectRelated = viewModel::openVideo
-                        )
-                    } else {
-                        CarBrowseContent(
-                            state = state,
-                            columns = metrics.browseColumns,
-                            onOpenSearchKeyboard = { viewModel.setKeyboardVisible(true) },
-                            onOpenVideo = viewModel::openVideo
-                        )
-                    }
+            CompositionLocalProvider(LocalDensity provides scaledDensity) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    CarSidebar(
+                        activeTab = state.activeTab,
+                        isParkedMode = state.isParkedMode,
+                        onSelectTab = viewModel::selectTab,
+                        onToggleParkedMode = viewModel::toggleParkedMode,
+                        onRefresh = viewModel::loadHome
+                    )
 
-                    if (state.showKeyboard) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                        ) {
-                            CarTouchKeyboard(
-                                text = state.searchQuery,
-                                onTextChange = viewModel::updateQuery,
-                                onSubmit = viewModel::submitSearch,
-                                onClose = { viewModel.setKeyboardVisible(false) }
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        val stream = state.currentStream
+                        if (stream != null) {
+                            CarWatchView(
+                                stream = stream,
+                                player = player,
+                                wideMode = metrics.useWideWatchLayout,
+                                isParkedMode = state.isParkedMode,
+                                onBack = viewModel::closeWatch,
+                                onSelectRelated = viewModel::openVideo
+                            )
+                        } else {
+                            CarBrowseContent(
+                                state = state,
+                                columns = metrics.browseColumns,
+                                onOpenSearchKeyboard = { viewModel.setKeyboardVisible(true) },
+                                onOpenVideo = viewModel::openVideo
                             )
                         }
-                    }
 
-                    if (state.loadingStream) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.65f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = CarColors.Accent)
+                        if (state.showKeyboard) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                            ) {
+                                CarTouchKeyboard(
+                                    text = state.searchQuery,
+                                    onTextChange = viewModel::updateQuery,
+                                    onSubmit = viewModel::submitSearch,
+                                    onClose = { viewModel.setKeyboardVisible(false) }
+                                )
+                            }
+                        }
+
+                        if (state.errorMessage != null && (stream != null || state.homeVideos.isNotEmpty() || state.searchResults.isNotEmpty())) {
+                            Surface(
+                                color = Color(0xFF33151B),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(state.errorMessage ?: "", color = Color.White, fontSize = 15.sp)
+                                    Spacer(Modifier.width(12.dp))
+                                    IconButton(onClick = viewModel::clearError, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color.White)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (state.loadingStream) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.65f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(color = CarColors.Accent)
+                            }
                         }
                     }
                 }
@@ -168,7 +222,9 @@ fun RoadieApp(
 @Composable
 private fun CarSidebar(
     activeTab: CarTab,
+    isParkedMode: Boolean,
     onSelectTab: (CarTab) -> Unit,
+    onToggleParkedMode: () -> Unit,
     onRefresh: () -> Unit
 ) {
     NavigationRail(
@@ -191,6 +247,13 @@ private fun CarSidebar(
             label = { Text("Search", fontSize = 13.sp) }
         )
         Spacer(Modifier.weight(1f))
+        IconButton(onClick = onToggleParkedMode, modifier = Modifier.size(56.dp)) {
+            Icon(
+                imageVector = if (isParkedMode) Icons.Default.LocalParking else Icons.Default.DirectionsCar,
+                contentDescription = if (isParkedMode) "Parked mode" else "Driving audio-only mode",
+                tint = if (isParkedMode) Color.White else CarColors.Accent
+            )
+        }
         IconButton(onClick = onRefresh, modifier = Modifier.size(56.dp)) {
             Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
         }
@@ -329,7 +392,7 @@ private fun CarVideoCard(video: VideoItem, onClick: () -> Unit) {
 @Composable
 private fun CarWatchView(
     stream: ResolvedStream,
-    player: ExoPlayer,
+    player: Player?,
     wideMode: Boolean,
     isParkedMode: Boolean,
     onBack: () -> Unit,

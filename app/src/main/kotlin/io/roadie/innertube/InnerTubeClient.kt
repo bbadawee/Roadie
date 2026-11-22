@@ -28,6 +28,30 @@ class InnerTubeClient(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
+    private data class PlayerClientProfile(
+        val clientName: String,
+        val clientVersion: String,
+        val extraFields: String = ""
+    )
+
+    private val playerProfiles = listOf(
+        PlayerClientProfile(
+            clientName = "IOS",
+            clientVersion = "19.45.4",
+            extraFields = """"deviceMake": "Apple", "deviceModel": "iPhone16,2","""
+        ),
+        PlayerClientProfile(
+            clientName = "ANDROID_VR",
+            clientVersion = "1.60.19",
+            extraFields = """"deviceMake": "Oculus", "deviceModel": "Quest 3", "androidSdkVersion": 32,"""
+        ),
+        PlayerClientProfile(
+            clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientVersion = "2.0",
+            extraFields = ""
+        )
+    )
+
     suspend fun fetchHomeFeed(): List<VideoItem> = withContext(Dispatchers.IO) {
         val body = """
             {
@@ -69,39 +93,80 @@ class InnerTubeClient(
         extractVideos(root).distinctBy { it.id }
     }
 
-    suspend fun resolveStream(videoId: String): ResolvedStream? = withContext(Dispatchers.IO) {
-        val body = """
-            {
-              "context": {
-                "client": {
-                  "clientName": "IOS",
-                  "clientVersion": "19.45.4",
-                  "deviceMake": "Apple",
-                  "deviceModel": "iPhone16,2",
-                  "hl": "en",
-                  "gl": "US"
+    suspend fun resolveStream(videoId: String): StreamResult = withContext(Dispatchers.IO) {
+        var lastError = "Failed to resolve playback stream."
+
+        for (profile in playerProfiles) {
+            val body = """
+                {
+                  "context": {
+                    "client": {
+                      "clientName": "${profile.clientName}",
+                      "clientVersion": "${profile.clientVersion}",
+                      ${profile.extraFields}
+                      "hl": "en",
+                      "gl": "US"
+                    }
+                  },
+                  "videoId": "$videoId",
+                  "contentCheckOk": true,
+                  "racyCheckOk": true
                 }
-              },
-              "videoId": "$videoId",
-              "contentCheckOk": true,
-              "racyCheckOk": true
+            """.trimIndent()
+            val root = post("https://www.youtube.com/youtubei/v1/player", body) ?: continue
+            when (val parsed = parsePlayerResponse(videoId, root)) {
+                is StreamResult.Success -> {
+                    val related = fetchRelated(videoId)
+                    return@withContext StreamResult.Success(parsed.stream.copy(relatedVideos = related))
+                }
+                is StreamResult.Error -> {
+                    lastError = parsed.reason
+                }
             }
-        """.trimIndent()
-        val root = post("https://www.youtube.com/youtubei/v1/player", body) ?: return@withContext null
-        val streamingData = root["streamingData"]?.jsonObject ?: return@withContext null
-        val hlsUrl = streamingData["hlsManifestUrl"]?.jsonPrimitive?.contentOrNull
-        val progressiveUrl = streamingData["formats"]?.jsonArray
+        }
+        StreamResult.Error(lastError)
+    }
+
+    internal fun parsePlayerResponse(videoId: String, root: JsonObject): StreamResult {
+        val playability = root["playabilityStatus"]?.jsonObject
+        val status = playability?.get("status")?.jsonPrimitive?.contentOrNull
+        val reason = playability?.get("reason")?.jsonPrimitive?.contentOrNull
+
+        val streamingData = root["streamingData"]?.jsonObject
+        val hlsUrl = streamingData?.get("hlsManifestUrl")?.jsonPrimitive?.contentOrNull
+        val progressiveUrl = streamingData?.get("formats")?.jsonArray
             ?.mapNotNull { it.jsonObject["url"]?.jsonPrimitive?.contentOrNull }
             ?.lastOrNull()
-        val finalUrl = hlsUrl ?: progressiveUrl ?: return@withContext null
+        val finalUrl = hlsUrl ?: progressiveUrl
+
+        if (finalUrl == null) {
+            val message = reason
+                ?: status?.let { "Playback unavailable ($it)." }
+                ?: "No playable stream URL returned."
+            return StreamResult.Error(message)
+        }
 
         val details = root["videoDetails"]?.jsonObject
         val title = details?.get("title")?.jsonPrimitive?.contentOrNull ?: "Untitled"
         val channel = details?.get("author")?.jsonPrimitive?.contentOrNull ?: ""
         val thumb = details?.get("thumbnail")?.jsonObject
             ?.get("thumbnails")?.jsonArray?.lastOrNull()?.jsonObject
-            ?.get("url")?.jsonPrimitive?.contentOrNull ?: ""
+            ?.get("url")?.jsonPrimitive?.contentOrNull
+            ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
 
+        return StreamResult.Success(
+            ResolvedStream(
+                videoId = videoId,
+                title = title,
+                channel = channel,
+                streamUrl = finalUrl,
+                isHls = hlsUrl != null,
+                thumbnailUrl = thumb
+            )
+        )
+    }
+
+    private fun fetchRelated(videoId: String): List<VideoItem> {
         val nextBody = """
             {
               "context": {
@@ -114,22 +179,8 @@ class InnerTubeClient(
               "videoId": "$videoId"
             }
         """.trimIndent()
-        val nextRoot = post("https://www.youtube.com/youtubei/v1/next", nextBody)
-        val related = if (nextRoot != null) {
-            extractVideos(nextRoot).filter { it.id != videoId }.distinctBy { it.id }.take(15)
-        } else {
-            emptyList()
-        }
-
-        ResolvedStream(
-            videoId = videoId,
-            title = title,
-            channel = channel,
-            streamUrl = finalUrl,
-            isHls = hlsUrl != null,
-            thumbnailUrl = thumb,
-            relatedVideos = related
-        )
+        val nextRoot = post("https://www.youtube.com/youtubei/v1/next", nextBody) ?: return emptyList()
+        return extractVideos(nextRoot).filter { it.id != videoId }.distinctBy { it.id }.take(15)
     }
 
     private fun post(url: String, payload: String): JsonObject? {

@@ -25,3 +25,8 @@ data class ResolvedStream(
     val thumbnailUrl: String = "",
     val relatedVideos: List<VideoItem> = emptyList()
 )
+
+sealed interface StreamResult {
+    data class Success(val stream: ResolvedStream) : StreamResult
+    data class Error(val reason: String) : StreamResult
+}
