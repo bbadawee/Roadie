@@ -61,16 +61,28 @@ Every existing YouTube workaround for Android cars forces an ugly compromise: **
 
 ## Quick start
 
-### Install on a head unit or AAOS emulator
+### Option 1: Aftermarket Android Head Unit or Android AI Box (Easiest — Zero Root)
 
-1. Download the latest `app-debug.apk` from [GitHub Actions](https://github.com/bbadawee/Roadie/actions) (or build from source below).
-2. Install via `adb` (no root or Google Play Services required):
+Works out of the box on **Android head units** (Teyes, Atoto, Joying, Dasaita, etc.) and **CarPlay / Android Auto Android AI Boxes** (Carlinkit, Ottocast, etc. that plug into your car's factory USB port):
+
+1. Download the latest APK from **[GitHub Actions](https://github.com/bbadawee/Roadie/actions)** or **[Releases](https://github.com/bbadawee/Roadie/releases)** (or copy it via USB drive).
+2. Open the APK on your head unit / AI Box and tap **Install** (allow "Install unknown apps" if prompted).
+3. Launch **Roadie** directly on your car screen.
+
+### Option 2: Android Automotive OS (AAOS) via ADB or Emulator
+
+1. Enable **Developer Options → USB / Wireless Debugging** on your AAOS unit (or start an Android Automotive AVD in Android Studio).
+2. Install via `adb`:
 
 ```bash
 adb install -r app-debug.apk
 ```
 
-### Build from source
+> **Note on OEM-locked AAOS & Phone-Projected Android Auto:**
+> - **OEM-locked AAOS cars** (some Polestar, Volvo, Renault, GM vehicles) disable third-party APK sideloading; distributing to those vehicles requires a **Google Play Internal / Open Testing** track under the Parked Video category.
+> - **Phone-projected Android Auto** (phone plugged into a non-Android head unit via USB/wireless) only permits template-based `CarAppService` UIs and audio `MediaLibraryService` apps—Google's projection protocol does not render standard Android `Activity` video screens, even with Android Auto Unknown Sources enabled. For stock factory screens, use an **Android AI Box** (Option 1).
+
+### Option 3: Build from source
 
 Requires **JDK 17 or 21** and **Android SDK (API 35)**:
 
