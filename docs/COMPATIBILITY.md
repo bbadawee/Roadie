@@ -2,13 +2,13 @@
 
 ## Supported Targets
 
-| Environment | Status | How to Install & Test |
+| Environment | Status | How to Install & Use |
 | :--- | :--- | :--- |
-| **Aftermarket Android Head Units** (API 26+) | **Supported** | Download the APK directly or copy via USB drive and tap **Install**. Adapts from `800×480` to `1280×720+`. |
-| **Android AI Boxes** (Carlinkit, Ottocast, etc.) | **Supported** | Plug into your car's factory wired CarPlay/Android Auto USB port, install the Roadie APK, and run full-screen on the OEM display. |
-| **Android Automotive OS (AAOS)** | **Supported (Experimental)** | Install via `adb install -r app-debug.apk` on developer-unlocked units or the Android Studio AAOS emulator. OEM-locked Google Built-In vehicles require Google Play Internal/Open Testing distribution. |
-| **Android Tablets & Phones** | **Supported** | Great for testing; portrait phones automatically switch to the stacked Watch + `Up next` layout. |
-| **Phone-Projected Android Auto** | **Not Supported for Video** | Android Auto projection restricts third-party apps to `CarAppService` templates and audio `MediaLibraryService` and blocks arbitrary `Activity` video rendering even when Unknown Sources is enabled. Use an **Android AI Box** for stock factory screens. |
+| **Any Phone + Bluetooth** | **Supported (Audio)** | Install Roadie on your phone and pair via Bluetooth. Audio, track metadata, and steering-wheel controls work automatically. |
+| **Any Phone + USB / Wireless Android Auto** | **Supported (Audio Browse & Play)** | Enable **Android Auto Developer Settings → Unknown Sources** on your phone. Roadie's `MediaLibraryService` lets you browse, search, and play audio from the car screen. *(Video UI is blocked by Google's Android Auto projection protocol on non-rooted phones.)* |
+| **Aftermarket Android Head Units** (API 26+) | **Supported (Full Video)** | Download the APK directly or copy via USB drive and tap **Install**. Adapts from `800×480` to `1280×720+`. |
+| **Android AI Boxes** (Carlinkit, Ottocast, etc.) | **Supported (Full Video)** | Plug into your car's factory wired CarPlay/Android Auto USB port, install the Roadie APK, and run full-screen on the OEM display. |
+| **Android Automotive OS (AAOS)** | **Supported (Experimental)** | Install via `adb install -r app-debug.apk` on developer-unlocked units or the AAOS emulator. OEM-locked Google Built-In vehicles require Google Play Internal/Open Testing distribution. |
 
 ## Layout Thresholds
 

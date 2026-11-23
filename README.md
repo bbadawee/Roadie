@@ -61,28 +61,33 @@ Every existing YouTube workaround for Android cars forces an ugly compromise: **
 
 ## Quick start
 
-### Option 1: Aftermarket Android Head Unit or Android AI Box (Easiest — Zero Root)
+### Option 1: Any Phone + Car via Bluetooth (Audio + Steering-Wheel Controls)
 
-Works out of the box on **Android head units** (Teyes, Atoto, Joying, Dasaita, etc.) and **CarPlay / Android Auto Android AI Boxes** (Carlinkit, Ottocast, etc. that plug into your car's factory USB port):
+1. Install `Roadie` on your Android phone (from **[Releases](https://github.com/bbadawee/Roadie/releases)** or **[GitHub Actions](https://github.com/bbadawee/Roadie/actions)**).
+2. Connect your phone to your car via **Bluetooth** as usual.
+3. Play any video in Roadie—audio, track metadata, and steering-wheel Play/Pause/Next/Previous controls work automatically (toggle **Drive** mode in the top bar for audio-only).
 
-1. Download the latest APK from **[GitHub Actions](https://github.com/bbadawee/Roadie/actions)** or **[Releases](https://github.com/bbadawee/Roadie/releases)** (or copy it via USB drive).
-2. Open the APK on your head unit / AI Box and tap **Install** (allow "Install unknown apps" if prompted).
-3. Launch **Roadie** directly on your car screen.
+### Option 2: Any Phone + Car via USB / Wireless Android Auto (Audio Browse & Play)
 
-### Option 2: Android Automotive OS (AAOS) via ADB or Emulator
+Roadie implements a `MediaLibraryService` so you can browse feeds, search, and play audio directly from your car's Android Auto screen without root:
 
-1. Enable **Developer Options → USB / Wireless Debugging** on your AAOS unit (or start an Android Automotive AVD in Android Studio).
-2. Install via `adb`:
+1. On your phone, open **Settings → Apps → Android Auto → Additional settings in the app** (or **Connected devices → Connection preferences → Android Auto**).
+2. Scroll to the bottom and tap **Version** **10 times** until **Developer mode** is enabled.
+3. Tap the **⋮** menu (top right) → **Developer settings** → check **Unknown sources**.
+4. Connect your phone to your car via USB cable or wireless Android Auto and open **Roadie** in the car's media/app drawer.
+
+> **Why is Android Auto audio-only from a phone?** Google's phone-to-car Android Auto projection protocol blocks all third-party `Activity` video UIs on non-rooted phones, even with Unknown Sources enabled. For **full video on your car screen**, use **Option 3** below (or your head unit's wireless/wired Screen Mirroring / SmartView while parked).
+
+### Option 3: Full Video on Car Screen (Android Head Unit, AI Box, or AAOS)
+
+- **Aftermarket Android Head Units** (Teyes, Atoto, Joying, Dasaita, etc.) & **CarPlay/AA Android AI Boxes** (Carlinkit, Ottocast, etc.): Download the APK directly or copy via USB drive and tap **Install** for full native video + touch UI.
+- **Android Automotive OS (AAOS) / Emulator:** Enable **USB/Wireless Debugging** and run:
 
 ```bash
 adb install -r app-debug.apk
 ```
 
-> **Note on OEM-locked AAOS & Phone-Projected Android Auto:**
-> - **OEM-locked AAOS cars** (some Polestar, Volvo, Renault, GM vehicles) disable third-party APK sideloading; distributing to those vehicles requires a **Google Play Internal / Open Testing** track under the Parked Video category.
-> - **Phone-projected Android Auto** (phone plugged into a non-Android head unit via USB/wireless) only permits template-based `CarAppService` UIs and audio `MediaLibraryService` apps—Google's projection protocol does not render standard Android `Activity` video screens, even with Android Auto Unknown Sources enabled. For stock factory screens, use an **Android AI Box** (Option 1).
-
-### Option 3: Build from source
+### Option 4: Build from source
 
 Requires **JDK 17 or 21** and **Android SDK (API 35)**:
 
