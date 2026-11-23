@@ -30,6 +30,14 @@
 
 <br />
 
+## Demo
+
+<video src="https://raw.githubusercontent.com/bbadawee/Roadie/main/assets/roadie-demo.mp4" controls width="960"></video>
+
+**[Download 15s AAOS Demo (MP4)](assets/roadie-demo.mp4)** · **[Download Roadie v0.1.0 APK](https://github.com/bbadawee/Roadie/releases/latest)**
+
+<br />
+
 <table>
   <tr>
     <td colspan="2" align="center">
