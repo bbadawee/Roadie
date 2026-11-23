@@ -32,9 +32,9 @@
 
 ## Demo
 
-<video src="https://raw.githubusercontent.com/bbadawee/Roadie/main/assets/roadie-demo.mp4" controls width="960"></video>
+<img src="assets/roadie-demo.gif" alt="Roadie AAOS Demo: Browse, Split Watch, Fullscreen, and EN/AR Keyboard" width="960" />
 
-**[Download 15s AAOS Demo (MP4)](assets/roadie-demo.mp4)** · **[Download Roadie v0.1.0 APK](https://github.com/bbadawee/Roadie/releases/latest)**
+**[Download Demo (MP4)](assets/roadie-demo.mp4)** · **[Download Roadie v0.1.0 APK](https://github.com/bbadawee/Roadie/releases/latest)**
 
 <br />
 
