@@ -13,9 +13,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -50,11 +48,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LocalParking
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -72,7 +74,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -97,6 +98,16 @@ import coil.request.ImageRequest
 import io.roadie.innertube.ResolvedStream
 import io.roadie.innertube.VideoItem
 import io.roadie.keyboard.CarTouchKeyboard
+import kotlin.math.abs
+
+private val AvatarPalette = listOf(
+    Color(0xFFEF4444),
+    Color(0xFF3B82F6),
+    Color(0xFF10B981),
+    Color(0xFFF59E0B),
+    Color(0xFF8B5CF6),
+    Color(0xFFEC4899)
+)
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
@@ -146,11 +157,7 @@ fun RoadieApp(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(CarColors.Background, CarColors.BackgroundAlt)
-                    )
-                )
+                .background(CarColors.Background)
         ) {
             val metrics = CarViewportMetrics(maxWidth.value, maxHeight.value)
             val baseDensity = LocalDensity.current
@@ -162,98 +169,104 @@ fun RoadieApp(
             }
 
             CompositionLocalProvider(LocalDensity provides scaledDensity) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.systemBars)
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    FloatingCarRail(
-                        activeTab = state.activeTab,
+                    YouTubeTopBar(
+                        searchQuery = state.searchQuery,
+                        isWatchOpen = state.currentStream != null,
                         isParkedMode = state.isParkedMode,
-                        onSelectTab = viewModel::selectTab,
+                        onBackFromWatch = viewModel::closeWatch,
+                        onOpenSearch = {
+                            viewModel.selectTab(CarTab.SEARCH)
+                            viewModel.setKeyboardVisible(true)
+                        },
                         onToggleParkedMode = viewModel::toggleParkedMode,
                         onRefresh = viewModel::loadHome
                     )
 
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                        AnimatedContent(
-                            targetState = state.currentStream,
-                            transitionSpec = { fadeIn() togetherWith fadeOut() },
-                            label = "watch_transition"
-                        ) { stream ->
-                            if (stream != null) {
-                                CarWatchView(
-                                    stream = stream,
-                                    player = player,
-                                    wideMode = metrics.useWideWatchLayout,
-                                    isParkedMode = state.isParkedMode,
-                                    onBack = viewModel::closeWatch,
-                                    onSelectRelated = viewModel::openVideo
-                                )
-                            } else {
-                                CarBrowseContent(
-                                    state = state,
-                                    columns = metrics.browseColumns,
-                                    onSelectCategory = viewModel::selectCategory,
-                                    onOpenSearchKeyboard = { viewModel.setKeyboardVisible(true) },
-                                    onOpenVideo = viewModel::openVideo
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        YouTubeMiniRail(
+                            activeTab = state.activeTab,
+                            onSelectTab = viewModel::selectTab
+                        )
+
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            AnimatedContent(
+                                targetState = state.currentStream,
+                                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                label = "youtube_watch_transition"
+                            ) { stream ->
+                                if (stream != null) {
+                                    YouTubeWatchView(
+                                        stream = stream,
+                                        player = player,
+                                        wideMode = metrics.useWideWatchLayout,
+                                        isParkedMode = state.isParkedMode,
+                                        onSelectRelated = viewModel::openVideo
+                                    )
+                                } else {
+                                    YouTubeBrowseView(
+                                        state = state,
+                                        columns = metrics.browseColumns,
+                                        onSelectCategory = viewModel::selectCategory,
+                                        onOpenVideo = viewModel::openVideo
+                                    )
+                                }
+                            }
+
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = state.showKeyboard,
+                                enter = slideInVertically { it } + fadeIn(),
+                                exit = slideOutVertically { it } + fadeOut(),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                            ) {
+                                CarTouchKeyboard(
+                                    text = state.searchQuery,
+                                    onTextChange = viewModel::updateQuery,
+                                    onSubmit = viewModel::submitSearch,
+                                    onClose = { viewModel.setKeyboardVisible(false) }
                                 )
                             }
-                        }
 
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = state.showKeyboard,
-                            enter = slideInVertically { it } + fadeIn(),
-                            exit = slideOutVertically { it } + fadeOut(),
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                        ) {
-                            CarTouchKeyboard(
-                                text = state.searchQuery,
-                                onTextChange = viewModel::updateQuery,
-                                onSubmit = viewModel::submitSearch,
-                                onClose = { viewModel.setKeyboardVisible(false) }
-                            )
-                        }
-
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = state.errorMessage != null && (state.currentStream != null || state.homeVideos.isNotEmpty() || state.searchResults.isNotEmpty()),
-                            enter = fadeIn(),
-                            exit = fadeOut(),
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 8.dp)
-                        ) {
-                            Surface(
-                                color = Color(0xFF3B131B),
-                                border = BorderStroke(1.dp, CarColors.Accent.copy(alpha = 0.5f)),
-                                shape = RoundedCornerShape(14.dp)
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = state.errorMessage != null && (state.currentStream != null || state.homeVideos.isNotEmpty() || state.searchResults.isNotEmpty()),
+                                enter = fadeIn(),
+                                exit = fadeOut(),
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 8.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Surface(
+                                    color = CarColors.SurfaceElevated,
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    Text(state.errorMessage ?: "", color = Color.White, fontSize = 14.sp)
-                                    Spacer(Modifier.width(12.dp))
-                                    IconButton(onClick = viewModel::clearError, modifier = Modifier.size(28.dp)) {
-                                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color.White)
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(state.errorMessage ?: "", color = CarColors.TextPrimary, fontSize = 14.sp)
+                                        Spacer(Modifier.width(12.dp))
+                                        IconButton(onClick = viewModel::clearError, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = CarColors.TextPrimary)
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        if (state.loadingStream) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(Color.Black.copy(alpha = 0.6f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(color = CarColors.Accent)
+                            if (state.loadingStream) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.55f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = CarColors.Accent)
+                                }
                             }
                         }
                     }
@@ -264,195 +277,242 @@ fun RoadieApp(
 }
 
 @Composable
-private fun FloatingCarRail(
-    activeTab: CarTab,
+private fun YouTubeTopBar(
+    searchQuery: String,
+    isWatchOpen: Boolean,
     isParkedMode: Boolean,
-    onSelectTab: (CarTab) -> Unit,
+    onBackFromWatch: () -> Unit,
+    onOpenSearch: () -> Unit,
     onToggleParkedMode: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    Surface(
-        color = CarColors.Surface,
-        shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, CarColors.SurfaceBorder),
-        modifier = Modifier
-            .width(80.dp)
-            .fillMaxHeight()
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(vertical = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(CarColors.AccentSoft)
-                    .border(1.dp, CarColors.Accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Roadie", tint = CarColors.Accent, modifier = Modifier.size(26.dp))
+            if (isWatchOpen) {
+                IconButton(onClick = onBackFromWatch, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = CarColors.TextPrimary)
+                }
+                Spacer(Modifier.width(6.dp))
             }
 
-            Spacer(Modifier.height(22.dp))
+            // Signature red play pill + clean wordmark
+            Box(
+                modifier = Modifier
+                    .width(30.dp)
+                    .height(21.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(CarColors.Accent),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = "Roadie",
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp
+            )
 
-            RailItem(
-                icon = Icons.Default.Home,
-                label = "Home",
-                selected = activeTab == CarTab.HOME,
-                onClick = { onSelectTab(CarTab.HOME) }
-            )
-            Spacer(Modifier.height(10.dp))
-            RailItem(
-                icon = Icons.Default.Search,
-                label = "Search",
-                selected = activeTab == CarTab.SEARCH,
-                onClick = { onSelectTab(CarTab.SEARCH) }
-            )
+            Spacer(Modifier.width(24.dp))
 
-            Spacer(Modifier.weight(1f))
+            // Authentic YouTube centered search pill
+            Surface(
+                color = Color(0xFF121212),
+                shape = CircleShape,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF303030)),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onOpenSearch)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = searchQuery.ifEmpty { "Search" },
+                        color = if (searchQuery.isEmpty()) CarColors.TextSecondary else CarColors.TextPrimary,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 18.dp, end = 8.dp)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(56.dp)
+                            .fillMaxHeight()
+                            .background(Color(0xFF222222)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.Search, contentDescription = "Search", tint = CarColors.TextPrimary, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
 
-            RailActionButton(
-                icon = if (isParkedMode) Icons.Default.LocalParking else Icons.Default.DirectionsCar,
-                tint = if (isParkedMode) CarColors.TextPrimary else CarColors.Accent,
-                contentDescription = if (isParkedMode) "Parked mode" else "Driving audio-only mode",
-                onClick = onToggleParkedMode
-            )
-            Spacer(Modifier.height(8.dp))
-            RailActionButton(
-                icon = Icons.Default.Refresh,
-                tint = CarColors.TextSecondary,
-                contentDescription = "Refresh",
-                onClick = onRefresh
-            )
+            Spacer(Modifier.width(10.dp))
+
+            Surface(
+                color = Color(0xFF222222),
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onOpenSearch)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Keyboard, contentDescription = "Keyboard", tint = CarColors.TextPrimary, modifier = Modifier.size(19.dp))
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Surface(
+                color = if (isParkedMode) Color(0xFF272727) else CarColors.Accent.copy(alpha = 0.2f),
+                shape = CircleShape,
+                modifier = Modifier
+                    .height(36.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onToggleParkedMode)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isParkedMode) Icons.Default.LocalParking else Icons.Default.DirectionsCar,
+                        contentDescription = null,
+                        tint = if (isParkedMode) CarColors.TextPrimary else CarColors.Accent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (isParkedMode) "Parked" else "Drive",
+                        color = CarColors.TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            IconButton(onClick = onRefresh, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = CarColors.TextPrimary, modifier = Modifier.size(20.dp))
+            }
         }
+        HorizontalDivider(color = Color(0xFF272727), thickness = 1.dp)
     }
 }
 
 @Composable
-private fun RailItem(
+private fun YouTubeMiniRail(
+    activeTab: CarTab,
+    onSelectTab: (CarTab) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(72.dp)
+            .fillMaxHeight()
+            .background(CarColors.Background)
+            .padding(top = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        MiniRailButton(
+            icon = if (activeTab == CarTab.HOME) Icons.Default.Home else Icons.Outlined.Home,
+            label = "Home",
+            selected = activeTab == CarTab.HOME,
+            onClick = { onSelectTab(CarTab.HOME) }
+        )
+        Spacer(Modifier.height(6.dp))
+        MiniRailButton(
+            icon = if (activeTab == CarTab.SEARCH) Icons.Default.Search else Icons.Outlined.Search,
+            label = "Search",
+            selected = activeTab == CarTab.SEARCH,
+            onClick = { onSelectTab(CarTab.SEARCH) }
+        )
+    }
+}
+
+@Composable
+private fun MiniRailButton(
     icon: ImageVector,
     label: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    Surface(
-        color = if (selected) CarColors.SurfaceElevated else Color.Transparent,
-        shape = RoundedCornerShape(16.dp),
-        border = if (selected) BorderStroke(1.dp, CarColors.SurfaceBorder) else null,
+    Column(
         modifier = Modifier
             .width(64.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) Color(0xFF272727) else Color.Transparent)
             .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier.padding(vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (selected) Color.White else CarColors.TextSecondary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = label,
-                color = if (selected) Color.White else CarColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-            )
-        }
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        )
     }
 }
 
 @Composable
-private fun RailActionButton(
-    icon: ImageVector,
-    tint: Color,
-    contentDescription: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        color = CarColors.SurfaceElevated.copy(alpha = 0.7f),
-        shape = CircleShape,
-        modifier = Modifier
-            .size(46.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
-        }
-    }
-}
-
-@Composable
-private fun CarBrowseContent(
+private fun YouTubeBrowseView(
     state: RoadieUiState,
     columns: Int,
     onSelectCategory: (CategoryChip) -> Unit,
-    onOpenSearchKeyboard: () -> Unit,
     onOpenVideo: (VideoItem) -> Unit
 ) {
     val videos = if (state.activeTab == CarTab.HOME) state.homeVideos else state.searchResults
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+    ) {
         if (state.activeTab == CarTab.HOME) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 12.dp)
+                contentPadding = PaddingValues(vertical = 12.dp)
             ) {
                 items(DefaultCarCategories, key = { it.label }) { chip ->
                     val selected = state.selectedCategory == chip.label
                     Surface(
-                        color = if (selected) Color.White else CarColors.Surface,
-                        shape = RoundedCornerShape(14.dp),
-                        border = if (selected) null else BorderStroke(1.dp, CarColors.SurfaceBorder),
+                        color = if (selected) Color(0xFFF1F1F1) else Color(0xFF272727),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onSelectCategory(chip) }
                     ) {
                         Box(
-                            modifier = Modifier.padding(horizontal = 16.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = chip.label,
-                                color = if (selected) Color(0xFF090A0F) else CarColors.TextPrimary,
+                                color = if (selected) Color(0xFF0F0F0F) else Color(0xFFF1F1F1),
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
                 }
             }
         } else {
-            Surface(
-                color = CarColors.Surface,
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, CarColors.SurfaceBorder),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable(onClick = onOpenSearchKeyboard)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Search, contentDescription = null, tint = CarColors.TextSecondary)
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = state.searchQuery.ifEmpty { "Search videos (English / عربي)…" },
-                        color = if (state.searchQuery.isEmpty()) CarColors.TextSecondary else Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
             Spacer(Modifier.height(12.dp))
         }
 
@@ -470,13 +530,13 @@ private fun CarBrowseContent(
             else -> {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columns),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(videos, key = { it.id }) { video ->
-                        CarVideoCard(video = video, onClick = { onOpenVideo(video) })
+                        YouTubeVideoTile(video = video, onClick = { onOpenVideo(video) })
                     }
                 }
             }
@@ -485,97 +545,99 @@ private fun CarBrowseContent(
 }
 
 @Composable
-private fun CarVideoCard(video: VideoItem, onClick: () -> Unit) {
+private fun YouTubeVideoTile(video: VideoItem, onClick: () -> Unit) {
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
+        targetValue = if (pressed) 0.97f else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "card_scale"
+        label = "yt_tile_scale"
     )
 
-    Surface(
-        color = CarColors.Surface,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (pressed) Color.White.copy(alpha = 0.5f) else CarColors.SurfaceBorder),
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .clip(RoundedCornerShape(16.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
             )
     ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(CarColors.SurfaceElevated)
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(video.thumbnailUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = video.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                if (video.isLive) {
-                    Surface(
-                        color = CarColors.Accent,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                    ) {
-                        Text(
-                            text = "LIVE",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                        )
-                    }
-                } else if (video.durationText.isNotEmpty()) {
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.8f),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                    ) {
-                        Text(
-                            text = video.durationText,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(CarColors.Surface)
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(video.thumbnailUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = video.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            if (video.isLive) {
+                Surface(
+                    color = Color(0xCCFF0000),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = "LIVE",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            } else if (video.durationText.isNotEmpty()) {
+                Surface(
+                    color = Color(0xCC000000),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = video.durationText,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
                 }
             }
-            Column(modifier = Modifier.padding(12.dp)) {
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            ChannelAvatar(name = video.channel, size = 34)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = video.title,
                     color = CarColors.TextPrimary,
-                    fontSize = 14.sp,
-                    lineHeight = 19.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(3.dp))
                 Text(
                     text = listOf(video.channel, video.viewCountText)
                         .filter { it.isNotBlank() }
                         .joinToString(" • "),
                     color = CarColors.TextSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -585,61 +647,43 @@ private fun CarVideoCard(video: VideoItem, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CarWatchView(
+private fun ChannelAvatar(name: String, size: Int) {
+    val initial = name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "Y"
+    val color = AvatarPalette[abs(name.hashCode()) % AvatarPalette.size]
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(color),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = initial,
+            color = Color.White,
+            fontSize = (size * 0.44f).sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun YouTubeWatchView(
     stream: ResolvedStream,
     player: Player?,
     wideMode: Boolean,
     isParkedMode: Boolean,
-    onBack: () -> Unit,
     onSelectRelated: (VideoItem) -> Unit
 ) {
     val context = LocalContext.current
 
-    val playerSection: @Composable (Modifier) -> Unit = { mod ->
+    val playerColumn: @Composable (Modifier) -> Unit = { mod ->
         Column(modifier = mod) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 10.dp)
-            ) {
-                Surface(
-                    color = CarColors.Surface,
-                    shape = CircleShape,
-                    border = BorderStroke(1.dp, CarColors.SurfaceBorder),
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onBack)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
-                    }
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stream.title,
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = stream.channel,
-                        color = CarColors.TextSecondary,
-                        fontSize = 13.sp,
-                        maxLines = 1
-                    )
-                }
-            }
-
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.Black)
-                    .border(1.dp, CarColors.SurfaceBorder, RoundedCornerShape(18.dp)),
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
                 if (isParkedMode) {
@@ -661,62 +705,114 @@ private fun CarWatchView(
                             .build(),
                         contentDescription = stream.title,
                         contentScale = ContentScale.Crop,
-                        alpha = 0.28f,
+                        alpha = 0.25f,
                         modifier = Modifier.fillMaxSize()
                     )
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CarColors.Accent, modifier = Modifier.size(44.dp))
                         Spacer(Modifier.height(8.dp))
-                        Text("Audio-only while driving", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Audio-only while driving", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium)
                     }
                 }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                text = stream.title,
+                color = CarColors.TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ChannelAvatar(name = stream.channel, size = 32)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = stream.channel,
+                    color = CarColors.TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
 
-    val queueSection: @Composable (Modifier) -> Unit = { mod ->
-        Surface(
-            color = CarColors.Surface,
-            shape = RoundedCornerShape(18.dp),
-            border = BorderStroke(1.dp, CarColors.SurfaceBorder),
-            modifier = mod
+    val upNextColumn: @Composable (Modifier) -> Unit = { mod ->
+        LazyColumn(
+            modifier = mod,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item {
-                    Text("Up Next", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                }
-                items(stream.relatedVideos, key = { it.id }) { related ->
-                    Surface(
-                        color = CarColors.SurfaceElevated,
-                        shape = RoundedCornerShape(12.dp),
+            item {
+                Text(
+                    text = "Up next",
+                    color = CarColors.TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 2.dp)
+                )
+            }
+            items(stream.relatedVideos, key = { it.id }) { related ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSelectRelated(related) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onSelectRelated(related) }
+                            .width(146.dp)
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(CarColors.Surface)
                     ) {
-                        Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(related.thumbnailUrl)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = related.title,
-                                contentScale = ContentScale.Crop,
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(related.thumbnailUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = related.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (related.durationText.isNotEmpty()) {
+                            Surface(
+                                color = Color(0xCC000000),
+                                shape = RoundedCornerShape(4.dp),
                                 modifier = Modifier
-                                    .width(104.dp)
-                                    .aspectRatio(16f / 9f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(CarColors.Background)
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(related.title, color = Color.White, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(2.dp))
-                                Text(related.channel, color = CarColors.TextSecondary, fontSize = 11.sp, maxLines = 1)
+                                    .align(Alignment.BottomEnd)
+                                    .padding(4.dp)
+                            ) {
+                                Text(
+                                    text = related.durationText,
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
                             }
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = related.title,
+                            color = CarColors.TextPrimary,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(related.channel, color = CarColors.TextSecondary, fontSize = 12.sp, maxLines = 1)
+                        if (related.viewCountText.isNotEmpty()) {
+                            Text(related.viewCountText, color = CarColors.TextSecondary, fontSize = 11.sp, maxLines = 1)
                         }
                     }
                 }
@@ -726,19 +822,23 @@ private fun CarWatchView(
 
     if (wideMode) {
         Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            playerSection(Modifier.weight(1.75f).fillMaxHeight())
-            queueSection(Modifier.weight(1f).fillMaxHeight())
+            playerColumn(Modifier.weight(1.75f).fillMaxHeight())
+            upNextColumn(Modifier.weight(1f).fillMaxHeight())
         }
     } else {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            playerSection(Modifier.fillMaxWidth().weight(1.2f))
-            queueSection(Modifier.fillMaxWidth().weight(1f))
+            playerColumn(Modifier.fillMaxWidth().weight(1.2f))
+            upNextColumn(Modifier.fillMaxWidth().weight(1f))
         }
     }
 }
