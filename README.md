@@ -30,7 +30,24 @@
 
 <br />
 
-<img src="assets/roadie-hero.svg" alt="Roadie car dashboard interface showing the sidebar rail, 16:9 Media3 video player, Up Next queue, and bilingual English/Arabic car touch keyboard" width="1080" />
+<table>
+  <tr>
+    <td colspan="2" align="center">
+      <img src="assets/screenshots/home-feed.png" alt="Roadie running on Android Automotive OS: 3-column responsive feed with category chips and floating sidebar rail" width="100%" /><br />
+      <strong>Browse</strong> — Android TV-grade 3-column feed with category pills on Android Automotive OS (<code>1024×768</code>)
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/screenshots/watch-split.png" alt="Roadie split Watch view with Media3 video player on the left and Up Next queue on the right" /><br />
+      <strong>Watch</strong> — Media3 player on the left, Up Next queue on the right
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/screenshots/search-keyboard.png" alt="Roadie Search screen with built-in English and Arabic car touch keyboard" /><br />
+      <strong>Search</strong> — Built-in English &amp; Arabic (<code>عربي</code>) car touch keyboard
+    </td>
+  </tr>
+</table>
 
 <br />
 

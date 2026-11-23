@@ -21,6 +21,7 @@ data class ResolvedStream(
     val title: String,
     val channel: String,
     val streamUrl: String,
+    val audioUrl: String? = null,
     val isHls: Boolean = false,
     val thumbnailUrl: String = "",
     val relatedVideos: List<VideoItem> = emptyList()

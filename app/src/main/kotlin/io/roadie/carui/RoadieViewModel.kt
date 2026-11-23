@@ -14,8 +14,20 @@ import kotlinx.coroutines.launch
 
 enum class CarTab { HOME, SEARCH }
 
+data class CategoryChip(val label: String, val query: String?)
+
+val DefaultCarCategories = listOf(
+    CategoryChip("For You", null),
+    CategoryChip("Night Drive", "night drive music 4k"),
+    CategoryChip("Music", "top music live mix"),
+    CategoryChip("Podcasts", "podcast interview"),
+    CategoryChip("Tech", "car tech review"),
+    CategoryChip("عربي", "اغاني عربية")
+)
+
 data class RoadieUiState(
     val activeTab: CarTab = CarTab.HOME,
+    val selectedCategory: String = "For You",
     val homeVideos: List<VideoItem> = emptyList(),
     val searchResults: List<VideoItem> = emptyList(),
     val searchQuery: String = "",
@@ -39,7 +51,32 @@ class RoadieViewModel(
     }
 
     fun selectTab(tab: CarTab) {
-        _state.update { it.copy(activeTab = tab, showKeyboard = tab == CarTab.SEARCH && it.searchResults.isEmpty()) }
+        _state.update {
+            it.copy(
+                activeTab = tab,
+                currentStream = null,
+                showKeyboard = tab == CarTab.SEARCH && it.searchResults.isEmpty()
+            )
+        }
+    }
+
+    fun selectCategory(chip: CategoryChip) {
+        _state.update { it.copy(selectedCategory = chip.label) }
+        if (chip.query == null) {
+            loadHome()
+        } else {
+            viewModelScope.launch {
+                _state.update { it.copy(loadingFeed = true, errorMessage = null) }
+                val items = client.search(chip.query)
+                _state.update {
+                    it.copy(
+                        homeVideos = items,
+                        loadingFeed = false,
+                        errorMessage = if (items.isEmpty()) "Could not load ${chip.label}." else null
+                    )
+                }
+            }
+        }
     }
 
     fun updateQuery(query: String) {

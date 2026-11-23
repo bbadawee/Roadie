@@ -94,16 +94,16 @@ fun CarTouchKeyboard(
             modifier = modifier
                 .fillMaxWidth()
                 .background(KeyboardBg)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(EntryBg)
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFFAAAAAA))
@@ -261,10 +261,10 @@ private fun KeyCap(
 ) {
     Surface(
         color = background,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(8.dp),
         modifier = modifier
-            .height(50.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .height(42.dp)
+            .clip(RoundedCornerShape(8.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Box(contentAlignment = Alignment.Center) {

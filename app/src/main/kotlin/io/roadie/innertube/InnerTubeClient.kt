@@ -37,7 +37,7 @@ class InnerTubeClient(
     private val playerProfiles = listOf(
         PlayerClientProfile(
             clientName = "IOS",
-            clientVersion = "19.45.4",
+            clientVersion = "20.10.4",
             extraFields = """"deviceMake": "Apple", "deviceModel": "iPhone16,2","""
         ),
         PlayerClientProfile(
@@ -53,13 +53,12 @@ class InnerTubeClient(
     )
 
     suspend fun fetchHomeFeed(): List<VideoItem> = withContext(Dispatchers.IO) {
-        val body = """
+        val browseBody = """
             {
               "context": {
                 "client": {
-                  "clientName": "ANDROID",
-                  "clientVersion": "19.45.36",
-                  "androidSdkVersion": 34,
+                  "clientName": "WEB",
+                  "clientVersion": "2.20250312.01.00",
                   "hl": "en",
                   "gl": "US"
                 }
@@ -67,8 +66,12 @@ class InnerTubeClient(
               "browseId": "FEwhat_to_watch"
             }
         """.trimIndent()
-        val root = post("https://www.youtube.com/youtubei/v1/browse", body) ?: return@withContext emptyList()
-        extractVideos(root).distinctBy { it.id }
+        val browseRoot = post("https://www.youtube.com/youtubei/v1/browse", browseBody)
+        val browseItems = if (browseRoot != null) extractVideos(browseRoot).distinctBy { it.id } else emptyList()
+        if (browseItems.isNotEmpty()) return@withContext browseItems
+
+        // Fallback to curated car-friendly discovery query when anonymous browse is gated
+        search("night drive music 4k")
     }
 
     suspend fun search(query: String): List<VideoItem> = withContext(Dispatchers.IO) {
@@ -79,9 +82,8 @@ class InnerTubeClient(
             {
               "context": {
                 "client": {
-                  "clientName": "ANDROID",
-                  "clientVersion": "19.45.36",
-                  "androidSdkVersion": 34,
+                  "clientName": "WEB",
+                  "clientVersion": "2.20250312.01.00",
                   "hl": "en",
                   "gl": "US"
                 }
@@ -113,10 +115,15 @@ class InnerTubeClient(
                   "racyCheckOk": true
                 }
             """.trimIndent()
-            val root = post("https://www.youtube.com/youtubei/v1/player", body) ?: continue
+            val isIos = profile.clientName == "IOS"
+            val root = post(
+                url = "https://www.youtube.com/youtubei/v1/player",
+                payload = body,
+                userAgent = if (isIos) "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)" else null
+            ) ?: continue
             when (val parsed = parsePlayerResponse(videoId, root)) {
                 is StreamResult.Success -> {
-                    val related = fetchRelated(videoId)
+                    val related = fetchRelated(videoId, parsed.stream.title, parsed.stream.channel)
                     return@withContext StreamResult.Success(parsed.stream.copy(relatedVideos = related))
                 }
                 is StreamResult.Error -> {
@@ -137,7 +144,21 @@ class InnerTubeClient(
         val progressiveUrl = streamingData?.get("formats")?.jsonArray
             ?.mapNotNull { it.jsonObject["url"]?.jsonPrimitive?.contentOrNull }
             ?.lastOrNull()
-        val finalUrl = hlsUrl ?: progressiveUrl
+        val adaptive = streamingData?.get("adaptiveFormats")?.jsonArray
+        val adaptiveVideoUrl = adaptive
+            ?.firstOrNull {
+                val obj = it.jsonObject
+                val mime = obj["mimeType"]?.jsonPrimitive?.contentOrNull ?: ""
+                mime.startsWith("video/mp4") && obj["url"]?.jsonPrimitive?.contentOrNull != null
+            }?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull
+        val adaptiveAudioUrl = adaptive
+            ?.lastOrNull {
+                val obj = it.jsonObject
+                val mime = obj["mimeType"]?.jsonPrimitive?.contentOrNull ?: ""
+                mime.startsWith("audio/mp4") && obj["url"]?.jsonPrimitive?.contentOrNull != null
+            }?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull
+
+        val finalUrl = hlsUrl ?: progressiveUrl ?: adaptiveVideoUrl
 
         if (finalUrl == null) {
             val message = reason
@@ -160,35 +181,48 @@ class InnerTubeClient(
                 title = title,
                 channel = channel,
                 streamUrl = finalUrl,
+                audioUrl = if (hlsUrl == null && progressiveUrl == null) adaptiveAudioUrl else null,
                 isHls = hlsUrl != null,
                 thumbnailUrl = thumb
             )
         )
     }
 
-    private fun fetchRelated(videoId: String): List<VideoItem> {
+    private suspend fun fetchRelated(videoId: String, title: String, channel: String): List<VideoItem> {
         val nextBody = """
             {
               "context": {
                 "client": {
-                  "clientName": "ANDROID",
-                  "clientVersion": "19.45.36",
-                  "androidSdkVersion": 34
+                  "clientName": "WEB",
+                  "clientVersion": "2.20250312.01.00",
+                  "hl": "en",
+                  "gl": "US"
                 }
               },
               "videoId": "$videoId"
             }
         """.trimIndent()
-        val nextRoot = post("https://www.youtube.com/youtubei/v1/next", nextBody) ?: return emptyList()
-        return extractVideos(nextRoot).filter { it.id != videoId }.distinctBy { it.id }.take(15)
+        val nextRoot = post("https://www.youtube.com/youtubei/v1/next", nextBody)
+        val fromNext = if (nextRoot != null) {
+            extractVideos(nextRoot).filter { it.id != videoId }.distinctBy { it.id }.take(15)
+        } else {
+            emptyList()
+        }
+        if (fromNext.isNotEmpty()) return fromNext
+        val query = channel.ifBlank { title.take(40) }
+        return search(query).filter { it.id != videoId }.take(15)
     }
 
-    private fun post(url: String, payload: String): JsonObject? {
-        val request = Request.Builder()
+    private fun post(url: String, payload: String, userAgent: String? = null): JsonObject? {
+        val builder = Request.Builder()
             .url(url)
-            .header("User-Agent", "com.google.android.youtube/19.45.36 (Linux; U; Android 14) gzip")
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .build()
+        if (userAgent != null) {
+            builder.header("User-Agent", userAgent)
+        } else {
+            builder.header("Origin", "https://www.youtube.com")
+        }
+        val request = builder.build()
         return runCatching {
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
@@ -232,10 +266,14 @@ class InnerTubeClient(
         val channel = readText(obj["ownerText"]) ?: readText(obj["shortBylineText"]) ?: ""
         val duration = readText(obj["lengthText"]) ?: ""
         val views = readText(obj["shortViewCountText"]) ?: readText(obj["viewCountText"]) ?: ""
-        val thumb = obj["thumbnail"]?.jsonObject
+        val rawThumb = obj["thumbnail"]?.jsonObject
             ?.get("thumbnails")?.jsonArray?.lastOrNull()?.jsonObject
             ?.get("url")?.jsonPrimitive?.contentOrNull
-            ?: "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+        val thumb = when {
+            rawThumb.isNullOrBlank() -> "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+            rawThumb.startsWith("//") -> "https:$rawThumb"
+            else -> rawThumb
+        }
         return VideoItem(
             id = id,
             title = title,
