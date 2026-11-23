@@ -21,7 +21,8 @@ data class WatchHistoryEntity(
     val durationText: String,
     val viewCountText: String,
     val thumbnailUrl: String,
-    val watchedAtMs: Long
+    val watchedAtMs: Long,
+    val lastPositionMs: Long = 0L
 ) {
     fun toVideoItem(): VideoItem = VideoItem(
         id = videoId,
@@ -44,8 +45,14 @@ interface RoadieDao {
     @Query("SELECT * FROM watch_history ORDER BY watchedAtMs DESC LIMIT 60")
     fun observeHistory(): Flow<List<WatchHistoryEntity>>
 
+    @Query("SELECT lastPositionMs FROM watch_history WHERE videoId = :videoId LIMIT 1")
+    suspend fun getLastPosition(videoId: String): Long?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertHistory(entry: WatchHistoryEntity)
+
+    @Query("UPDATE watch_history SET lastPositionMs = :positionMs, watchedAtMs = :watchedAtMs WHERE videoId = :videoId")
+    suspend fun updatePosition(videoId: String, positionMs: Long, watchedAtMs: Long)
 
     @Query("DELETE FROM watch_history")
     suspend fun clearHistory()
@@ -62,7 +69,7 @@ interface RoadieDao {
 
 @Database(
     entities = [WatchHistoryEntity::class, SubscriptionEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class RoadieDatabase : RoomDatabase() {
@@ -78,7 +85,7 @@ abstract class RoadieDatabase : RoomDatabase() {
                     context.applicationContext,
                     RoadieDatabase::class.java,
                     "roadie.db"
-                ).build().also { instance = it }
+                ).fallbackToDestructiveMigration(true).build().also { instance = it }
             }
     }
 }

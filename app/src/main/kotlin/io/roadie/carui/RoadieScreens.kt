@@ -185,11 +185,20 @@ fun RoadieApp(
         }
     }
 
-    LaunchedEffect(state.currentStream?.videoId, player) {
+    LaunchedEffect(state.currentStream?.videoId, state.isParkedMode, player) {
         val activePlayer = player ?: return@LaunchedEffect
         val stream = state.currentStream ?: return@LaunchedEffect
+        val targetUri = if (!state.isParkedMode && !stream.audioUrl.isNullOrBlank()) {
+            stream.audioUrl
+        } else {
+            stream.streamUrl
+        }
+        val resumePos = maxOf(
+            if (activePlayer.currentMediaItem?.mediaId == stream.videoId) activePlayer.currentPosition else 0L,
+            state.resumePositionMs
+        )
         val item = MediaItem.Builder()
-            .setUri(stream.streamUrl)
+            .setUri(targetUri)
             .setMediaId(stream.videoId)
             .setMediaMetadata(
                 MediaMetadata.Builder()
@@ -201,14 +210,23 @@ fun RoadieApp(
             .build()
         activePlayer.setMediaItem(item)
         activePlayer.prepare()
+        if (resumePos > 5000L) {
+            activePlayer.seekTo(resumePos)
+        }
+        activePlayer.setPlaybackSpeed(state.playbackSpeed)
         activePlayer.play()
     }
 
-    // SponsorBlock segment auto-skip loop
+    LaunchedEffect(state.playbackSpeed, player) {
+        player?.setPlaybackSpeed(state.playbackSpeed)
+    }
+
+    // SponsorBlock segment auto-skip + Resume position persistence loop
     LaunchedEffect(state.currentStream?.videoId, player, state.sponsorSegments) {
         val activePlayer = player ?: return@LaunchedEffect
+        val stream = state.currentStream ?: return@LaunchedEffect
         val segments: List<SponsorSegment> = state.sponsorSegments
-        if (segments.isEmpty() || state.currentStream == null) return@LaunchedEffect
+        var tick = 0
         while (true) {
             if (activePlayer.isPlaying) {
                 val pos = activePlayer.currentPosition
@@ -216,6 +234,9 @@ fun RoadieApp(
                 if (hit != null) {
                     activePlayer.seekTo(hit.endMs)
                     sponsorNotice = "Skipped ${hit.category}"
+                }
+                if (++tick % 6 == 0) {
+                    viewModel.savePlaybackProgress(stream.videoId, pos)
                 }
             }
             delay(500L)
@@ -288,7 +309,9 @@ fun RoadieApp(
                                         wideMode = metrics.useWideWatchLayout,
                                         isFullscreen = state.isFullscreen,
                                         isParkedMode = state.isParkedMode,
+                                        playbackSpeed = state.playbackSpeed,
                                         isSubscribed = subscribed,
+                                        onCycleSpeed = viewModel::cyclePlaybackSpeed,
                                         onToggleSubscribe = { viewModel.toggleSubscription(stream.channel) },
                                         onToggleFullscreen = viewModel::toggleFullscreen,
                                         onSelectRelated = viewModel::openVideo
@@ -826,7 +849,9 @@ private fun YouTubeWatchView(
     wideMode: Boolean,
     isFullscreen: Boolean,
     isParkedMode: Boolean,
+    playbackSpeed: Float,
     isSubscribed: Boolean,
+    onCycleSpeed: () -> Unit,
     onToggleSubscribe: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onSelectRelated: (VideoItem) -> Unit
@@ -921,6 +946,31 @@ private fun YouTubeWatchView(
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)
                     )
+                    Surface(
+                        color = Color(0xFF272727),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .height(34.dp)
+                            .carFocusable(CircleShape, onCycleSpeed)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val speedLabel = if (playbackSpeed == 1.0f || playbackSpeed == 2.0f) {
+                                "${playbackSpeed.toInt()}x"
+                            } else {
+                                "${playbackSpeed}x"
+                            }
+                            Text(
+                                text = speedLabel,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                     Surface(
                         color = if (isSubscribed) Color(0xFF272727) else Color(0xFFF1F1F1),
                         shape = CircleShape,

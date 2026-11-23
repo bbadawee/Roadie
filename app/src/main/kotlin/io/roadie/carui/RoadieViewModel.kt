@@ -31,6 +31,8 @@ val DefaultCarCategories = listOf(
     CategoryChip("عربي", "اغاني عربية")
 )
 
+private val SpeedSteps = listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
+
 data class RoadieUiState(
     val activeTab: CarTab = CarTab.HOME,
     val selectedCategory: String = "For You",
@@ -43,6 +45,8 @@ data class RoadieUiState(
     val loadingFeed: Boolean = false,
     val loadingStream: Boolean = false,
     val currentStream: ResolvedStream? = null,
+    val resumePositionMs: Long = 0L,
+    val playbackSpeed: Float = 1.0f,
     val sponsorSegments: List<SponsorSegment> = emptyList(),
     val isFullscreen: Boolean = false,
     val isParkedMode: Boolean = true,
@@ -136,6 +140,21 @@ class RoadieViewModel(
         _state.update { it.copy(isFullscreen = !it.isFullscreen) }
     }
 
+    fun cyclePlaybackSpeed() {
+        _state.update { state ->
+            val idx = SpeedSteps.indexOf(state.playbackSpeed)
+            val next = SpeedSteps[(idx + 1) % SpeedSteps.size]
+            state.copy(playbackSpeed = next)
+        }
+    }
+
+    fun savePlaybackProgress(videoId: String, positionMs: Long) {
+        if (positionMs < 1000L) return
+        viewModelScope.launch {
+            dao.updatePosition(videoId, positionMs, System.currentTimeMillis())
+        }
+    }
+
     fun toggleSubscription(channel: String) {
         if (channel.isBlank()) return
         viewModelScope.launch {
@@ -188,6 +207,7 @@ class RoadieViewModel(
                     loadingStream = true,
                     showKeyboard = false,
                     sponsorSegments = emptyList(),
+                    resumePositionMs = 0L,
                     errorMessage = null
                 )
             }
@@ -201,6 +221,7 @@ class RoadieViewModel(
                     }
                 }
             }
+            val savedPos = dao.getLastPosition(video.id) ?: 0L
             when (val result = client.resolveStream(video.id)) {
                 is StreamResult.Success -> {
                     dao.upsertHistory(
@@ -211,11 +232,16 @@ class RoadieViewModel(
                             durationText = video.durationText,
                             viewCountText = video.viewCountText,
                             thumbnailUrl = result.stream.thumbnailUrl.ifBlank { video.thumbnailUrl },
-                            watchedAtMs = System.currentTimeMillis()
+                            watchedAtMs = System.currentTimeMillis(),
+                            lastPositionMs = savedPos
                         )
                     )
                     _state.update {
-                        it.copy(currentStream = result.stream, loadingStream = false)
+                        it.copy(
+                            currentStream = result.stream,
+                            resumePositionMs = savedPos,
+                            loadingStream = false
+                        )
                     }
                 }
                 is StreamResult.Error -> _state.update {
@@ -226,6 +252,13 @@ class RoadieViewModel(
     }
 
     fun closeWatch() {
-        _state.update { it.copy(currentStream = null, isFullscreen = false, sponsorSegments = emptyList()) }
+        _state.update {
+            it.copy(
+                currentStream = null,
+                isFullscreen = false,
+                sponsorSegments = emptyList(),
+                resumePositionMs = 0L
+            )
+        }
     }
 }

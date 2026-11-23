@@ -1,7 +1,6 @@
 package io.roadie.app
 
 import android.net.Uri
-import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -17,6 +16,7 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import io.roadie.data.RoadieDatabase
 import io.roadie.innertube.InnerTubeClient
 import io.roadie.innertube.StreamResult
 import io.roadie.innertube.VideoItem
@@ -24,12 +24,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
  * Media3 MediaLibraryService enabling:
  * - Background audio & Bluetooth steering-wheel controls
- * - Android Auto car-screen browsing, search, and playback (audio)
+ * - Android Auto car-screen folder browsing (Home, Subscriptions, History), search, and audio playback
  */
 class RoadiePlaybackService : MediaLibraryService() {
 
@@ -65,11 +66,31 @@ class RoadiePlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            if (parentId == "root") {
+                val folders = listOf(
+                    folderItem("home", "Home"),
+                    folderItem("subscriptions", "Subscriptions"),
+                    folderItem("history", "History")
+                )
+                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(folders), params))
+            }
+
             val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             serviceScope.launch {
-                val items = runCatching { innerTube.fetchHomeFeed() }
-                    .getOrDefault(emptyList())
-                    .map { it.toMediaItem() }
+                val dao = RoadieDatabase.get(applicationContext).dao()
+                val items = when (parentId) {
+                    "history" -> runCatching {
+                        dao.observeHistory().first().map { it.toVideoItem().toMediaItem() }
+                    }.getOrDefault(emptyList())
+                    "subscriptions" -> runCatching {
+                        val subs = dao.observeSubscriptions().first().map { it.channelName }.toSet()
+                        val hist = dao.observeHistory().first().map { it.toVideoItem() }
+                        hist.filter { subs.contains(it.channel) }.map { it.toMediaItem() }
+                    }.getOrDefault(emptyList())
+                    else -> runCatching { innerTube.fetchHomeFeed() }
+                        .getOrDefault(emptyList())
+                        .map { it.toMediaItem() }
+                }
                 future.set(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
             }
             return future
@@ -122,8 +143,9 @@ class RoadiePlaybackService : MediaLibraryService() {
                         when (val res = innerTube.resolveStream(item.mediaId)) {
                             is StreamResult.Success -> {
                                 val stream = res.stream
+                                val bestAudioOrStream = stream.audioUrl ?: stream.streamUrl
                                 item.buildUpon()
-                                    .setUri(stream.streamUrl)
+                                    .setUri(bestAudioOrStream)
                                     .setMediaMetadata(
                                         MediaMetadata.Builder()
                                             .setTitle(stream.title)
@@ -174,6 +196,19 @@ class RoadiePlaybackService : MediaLibraryService() {
         serviceScope.cancel()
         super.onDestroy()
     }
+
+    private fun folderItem(id: String, title: String): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                    .build()
+            )
+            .build()
 
     private fun VideoItem.toMediaItem(): MediaItem =
         MediaItem.Builder()

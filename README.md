@@ -34,7 +34,7 @@
 
 <img src="assets/roadie-demo.gif" alt="Roadie AAOS Demo: Browse, Split Watch, Fullscreen, and EN/AR Keyboard" width="840" />
 
-**[Download Demo (MP4)](assets/roadie-demo.mp4)** · **[Download Roadie v0.1.0 APK](https://github.com/bbadawee/Roadie/releases/latest)**
+**[Download Demo (MP4)](assets/roadie-demo.mp4)** · **[Download Latest APK](https://github.com/bbadawee/Roadie/releases/latest)** · **[Add to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/bbadawee/Roadie)**
 
 <details>
 <summary><strong>Static screenshots (Browse, Watch, Search)</strong></summary>
