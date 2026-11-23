@@ -35,6 +35,7 @@ data class RoadieUiState(
     val loadingFeed: Boolean = false,
     val loadingStream: Boolean = false,
     val currentStream: ResolvedStream? = null,
+    val isFullscreen: Boolean = false,
     val isParkedMode: Boolean = true,
     val errorMessage: String? = null
 )
@@ -55,6 +56,7 @@ class RoadieViewModel(
             it.copy(
                 activeTab = tab,
                 currentStream = null,
+                isFullscreen = false,
                 showKeyboard = tab == CarTab.SEARCH && it.searchResults.isEmpty()
             )
         }
@@ -89,6 +91,10 @@ class RoadieViewModel(
 
     fun toggleParkedMode() {
         _state.update { it.copy(isParkedMode = !it.isParkedMode) }
+    }
+
+    fun toggleFullscreen() {
+        _state.update { it.copy(isFullscreen = !it.isFullscreen) }
     }
 
     fun clearError() {
@@ -140,6 +146,6 @@ class RoadieViewModel(
     }
 
     fun closeWatch() {
-        _state.update { it.copy(currentStream = null) }
+        _state.update { it.copy(currentStream = null, isFullscreen = false) }
     }
 }

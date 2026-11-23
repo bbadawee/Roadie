@@ -47,6 +47,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LocalParking
@@ -169,29 +171,34 @@ fun RoadieApp(
             }
 
             CompositionLocalProvider(LocalDensity provides scaledDensity) {
+                val inFullscreen = state.isFullscreen && state.currentStream != null
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.systemBars)
                 ) {
-                    YouTubeTopBar(
-                        searchQuery = state.searchQuery,
-                        isWatchOpen = state.currentStream != null,
-                        isParkedMode = state.isParkedMode,
-                        onBackFromWatch = viewModel::closeWatch,
-                        onOpenSearch = {
-                            viewModel.selectTab(CarTab.SEARCH)
-                            viewModel.setKeyboardVisible(true)
-                        },
-                        onToggleParkedMode = viewModel::toggleParkedMode,
-                        onRefresh = viewModel::loadHome
-                    )
+                    if (!inFullscreen) {
+                        YouTubeTopBar(
+                            searchQuery = state.searchQuery,
+                            isWatchOpen = state.currentStream != null,
+                            isParkedMode = state.isParkedMode,
+                            onBackFromWatch = viewModel::closeWatch,
+                            onOpenSearch = {
+                                viewModel.selectTab(CarTab.SEARCH)
+                                viewModel.setKeyboardVisible(true)
+                            },
+                            onToggleParkedMode = viewModel::toggleParkedMode,
+                            onRefresh = viewModel::loadHome
+                        )
+                    }
 
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        YouTubeMiniRail(
-                            activeTab = state.activeTab,
-                            onSelectTab = viewModel::selectTab
-                        )
+                        if (!inFullscreen) {
+                            YouTubeMiniRail(
+                                activeTab = state.activeTab,
+                                onSelectTab = viewModel::selectTab
+                            )
+                        }
 
                         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                             AnimatedContent(
@@ -204,7 +211,9 @@ fun RoadieApp(
                                         stream = stream,
                                         player = player,
                                         wideMode = metrics.useWideWatchLayout,
+                                        isFullscreen = state.isFullscreen,
                                         isParkedMode = state.isParkedMode,
+                                        onToggleFullscreen = viewModel::toggleFullscreen,
                                         onSelectRelated = viewModel::openVideo
                                     )
                                 } else {
@@ -671,7 +680,9 @@ private fun YouTubeWatchView(
     stream: ResolvedStream,
     player: Player?,
     wideMode: Boolean,
+    isFullscreen: Boolean,
     isParkedMode: Boolean,
+    onToggleFullscreen: () -> Unit,
     onSelectRelated: (VideoItem) -> Unit
 ) {
     val context = LocalContext.current
@@ -682,7 +693,7 @@ private fun YouTubeWatchView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(if (isFullscreen) 0.dp else 12.dp))
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
@@ -692,9 +703,13 @@ private fun YouTubeWatchView(
                             PlayerView(ctx).apply {
                                 this.player = player
                                 useController = true
+                                setFullscreenButtonClickListener { onToggleFullscreen() }
                             }
                         },
-                        update = { it.player = player },
+                        update = {
+                            it.player = player
+                            it.setFullscreenButtonClickListener { onToggleFullscreen() }
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -714,28 +729,50 @@ private fun YouTubeWatchView(
                         Text("Audio-only while driving", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium)
                     }
                 }
+
+                Surface(
+                    color = Color(0x88000000),
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onToggleFullscreen)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
             }
 
-            Spacer(Modifier.height(12.dp))
+            if (!isFullscreen) {
+                Spacer(Modifier.height(12.dp))
 
-            Text(
-                text = stream.title,
-                color = CarColors.TextPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ChannelAvatar(name = stream.channel, size = 32)
-                Spacer(Modifier.width(10.dp))
                 Text(
-                    text = stream.channel,
+                    text = stream.title,
                     color = CarColors.TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ChannelAvatar(name = stream.channel, size = 32)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = stream.channel,
+                        color = CarColors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
     }
@@ -820,7 +857,9 @@ private fun YouTubeWatchView(
         }
     }
 
-    if (wideMode) {
+    if (isFullscreen) {
+        playerColumn(Modifier.fillMaxSize())
+    } else if (wideMode) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
