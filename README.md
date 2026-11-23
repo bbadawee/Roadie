@@ -32,30 +32,33 @@
 
 ## Demo
 
-<img src="assets/roadie-demo.gif" alt="Roadie AAOS Demo: Browse, Split Watch, Fullscreen, and EN/AR Keyboard" width="960" />
+<img src="assets/roadie-demo.gif" alt="Roadie AAOS Demo: Browse, Split Watch, Fullscreen, and EN/AR Keyboard" width="840" />
 
 **[Download Demo (MP4)](assets/roadie-demo.mp4)** · **[Download Roadie v0.1.0 APK](https://github.com/bbadawee/Roadie/releases/latest)**
+
+<details>
+<summary><strong>Static screenshots (Browse, Watch, Search)</strong></summary>
 
 <br />
 
 <table>
   <tr>
-    <td colspan="2" align="center">
-      <img src="assets/screenshots/home-feed.png" alt="Roadie running on Android Automotive OS: 3-column responsive feed with category chips and floating sidebar rail" width="100%" /><br />
-      <strong>Browse</strong> — Android TV-grade 3-column feed with category pills on Android Automotive OS (<code>1024×768</code>)
+    <td width="33%" align="center">
+      <img src="assets/screenshots/home-feed.png" alt="Browse 3-column feed on AAOS" /><br />
+      <sub><strong>Browse</strong> — 3-column feed</sub>
     </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <img src="assets/screenshots/watch-split.png" alt="Roadie split Watch view with Media3 video player on the left and Up Next queue on the right" /><br />
-      <strong>Watch</strong> — Media3 player on the left, Up Next queue on the right
+    <td width="33%" align="center">
+      <img src="assets/screenshots/watch-split.png" alt="Split Watch player and Up Next queue" /><br />
+      <sub><strong>Watch</strong> — Player + Up Next</sub>
     </td>
-    <td width="50%" align="center">
-      <img src="assets/screenshots/search-keyboard.png" alt="Roadie Search screen with built-in English and Arabic car touch keyboard" /><br />
-      <strong>Search</strong> — Built-in English &amp; Arabic (<code>عربي</code>) car touch keyboard
+    <td width="33%" align="center">
+      <img src="assets/screenshots/search-keyboard.png" alt="Built-in EN/AR car touch keyboard" /><br />
+      <sub><strong>Search</strong> — EN / عربي keyboard</sub>
     </td>
   </tr>
 </table>
+
+</details>
 
 <br />
 
