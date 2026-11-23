@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -13,8 +12,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -49,14 +51,18 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LocalParking
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -74,10 +80,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -98,8 +112,10 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import io.roadie.innertube.ResolvedStream
+import io.roadie.innertube.SponsorSegment
 import io.roadie.innertube.VideoItem
 import io.roadie.keyboard.CarTouchKeyboard
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 private val AvatarPalette = listOf(
@@ -111,6 +127,32 @@ private val AvatarPalette = listOf(
     Color(0xFFEC4899)
 )
 
+/** Rotary knob & D-pad focus modifier with visible YouTube-style white focus ring. */
+private fun Modifier.carFocusable(
+    shape: Shape = RoundedCornerShape(10.dp),
+    onClick: () -> Unit
+): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    this
+        .clip(shape)
+        .onFocusChanged { focused = it.isFocused }
+        .focusable()
+        .onKeyEvent { event ->
+            if (event.type == KeyEventType.KeyUp &&
+                (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+            ) {
+                onClick()
+                true
+            } else {
+                false
+            }
+        }
+        .then(
+            if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier
+        )
+        .clickable(onClick = onClick)
+}
+
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun RoadieApp(
@@ -119,8 +161,14 @@ fun RoadieApp(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     var player by remember { mutableStateOf<Player?>(null) }
+    var sponsorNotice by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(context) {
+        val uxMonitor = CarUxMonitor(context) { restricted ->
+            viewModel.setDrivingRestricted(restricted)
+        }
+        uxMonitor.start()
+
         val token = SessionToken(
             context,
             ComponentName(context.packageName, "io.roadie.app.RoadiePlaybackService")
@@ -131,6 +179,7 @@ fun RoadieApp(
             ContextCompat.getMainExecutor(context)
         )
         onDispose {
+            uxMonitor.stop()
             MediaController.releaseFuture(future)
             player = null
         }
@@ -153,6 +202,31 @@ fun RoadieApp(
         activePlayer.setMediaItem(item)
         activePlayer.prepare()
         activePlayer.play()
+    }
+
+    // SponsorBlock segment auto-skip loop
+    LaunchedEffect(state.currentStream?.videoId, player, state.sponsorSegments) {
+        val activePlayer = player ?: return@LaunchedEffect
+        val segments: List<SponsorSegment> = state.sponsorSegments
+        if (segments.isEmpty() || state.currentStream == null) return@LaunchedEffect
+        while (true) {
+            if (activePlayer.isPlaying) {
+                val pos = activePlayer.currentPosition
+                val hit = segments.firstOrNull { pos in it.startMs until (it.endMs - 400L) }
+                if (hit != null) {
+                    activePlayer.seekTo(hit.endMs)
+                    sponsorNotice = "Skipped ${hit.category}"
+                }
+            }
+            delay(500L)
+        }
+    }
+
+    LaunchedEffect(sponsorNotice) {
+        if (sponsorNotice != null) {
+            delay(2500L)
+            sponsorNotice = null
+        }
     }
 
     RoadieTheme {
@@ -207,12 +281,15 @@ fun RoadieApp(
                                 label = "youtube_watch_transition"
                             ) { stream ->
                                 if (stream != null) {
+                                    val subscribed = state.subscribedChannels.contains(stream.channel)
                                     YouTubeWatchView(
                                         stream = stream,
                                         player = player,
                                         wideMode = metrics.useWideWatchLayout,
                                         isFullscreen = state.isFullscreen,
                                         isParkedMode = state.isParkedMode,
+                                        isSubscribed = subscribed,
+                                        onToggleSubscribe = { viewModel.toggleSubscription(stream.channel) },
                                         onToggleFullscreen = viewModel::toggleFullscreen,
                                         onSelectRelated = viewModel::openVideo
                                     )
@@ -240,6 +317,28 @@ fun RoadieApp(
                                     onSubmit = viewModel::submitSearch,
                                     onClose = { viewModel.setKeyboardVisible(false) }
                                 )
+                            }
+
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = sponsorNotice != null,
+                                enter = fadeIn(),
+                                exit = fadeOut(),
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(20.dp)
+                            ) {
+                                Surface(
+                                    color = Color(0xCC212121),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = sponsorNotice ?: "",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
                             }
 
                             androidx.compose.animation.AnimatedVisibility(
@@ -304,13 +403,17 @@ private fun YouTubeTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (isWatchOpen) {
-                IconButton(onClick = onBackFromWatch, modifier = Modifier.size(40.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .carFocusable(CircleShape, onBackFromWatch),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = CarColors.TextPrimary)
                 }
                 Spacer(Modifier.width(6.dp))
             }
 
-            // Signature red play pill + clean wordmark
             Box(
                 modifier = Modifier
                     .width(30.dp)
@@ -332,16 +435,14 @@ private fun YouTubeTopBar(
 
             Spacer(Modifier.width(24.dp))
 
-            // Authentic YouTube centered search pill
             Surface(
                 color = Color(0xFF121212),
                 shape = CircleShape,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF303030)),
+                border = BorderStroke(1.dp, Color(0xFF303030)),
                 modifier = Modifier
                     .weight(1f)
                     .height(40.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onOpenSearch)
+                    .carFocusable(CircleShape, onOpenSearch)
             ) {
                 Row(
                     modifier = Modifier.fillMaxSize(),
@@ -376,8 +477,7 @@ private fun YouTubeTopBar(
                 shape = CircleShape,
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onOpenSearch)
+                    .carFocusable(CircleShape, onOpenSearch)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Keyboard, contentDescription = "Keyboard", tint = CarColors.TextPrimary, modifier = Modifier.size(19.dp))
@@ -391,8 +491,7 @@ private fun YouTubeTopBar(
                 shape = CircleShape,
                 modifier = Modifier
                     .height(36.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onToggleParkedMode)
+                    .carFocusable(CircleShape, onToggleParkedMode)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp),
@@ -414,7 +513,13 @@ private fun YouTubeTopBar(
                 }
             }
 
-            IconButton(onClick = onRefresh, modifier = Modifier.size(40.dp)) {
+            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .carFocusable(CircleShape, onRefresh),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = CarColors.TextPrimary, modifier = Modifier.size(20.dp))
             }
         }
@@ -448,6 +553,20 @@ private fun YouTubeMiniRail(
             selected = activeTab == CarTab.SEARCH,
             onClick = { onSelectTab(CarTab.SEARCH) }
         )
+        Spacer(Modifier.height(6.dp))
+        MiniRailButton(
+            icon = if (activeTab == CarTab.SUBSCRIPTIONS) Icons.Default.Subscriptions else Icons.Outlined.Subscriptions,
+            label = "Subs",
+            selected = activeTab == CarTab.SUBSCRIPTIONS,
+            onClick = { onSelectTab(CarTab.SUBSCRIPTIONS) }
+        )
+        Spacer(Modifier.height(6.dp))
+        MiniRailButton(
+            icon = if (activeTab == CarTab.HISTORY) Icons.Default.History else Icons.Outlined.History,
+            label = "History",
+            selected = activeTab == CarTab.HISTORY,
+            onClick = { onSelectTab(CarTab.HISTORY) }
+        )
     }
 }
 
@@ -461,10 +580,9 @@ private fun MiniRailButton(
     Column(
         modifier = Modifier
             .width(64.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) Color(0xFF272727) else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .background(if (selected) Color(0xFF272727) else Color.Transparent, RoundedCornerShape(10.dp))
+            .carFocusable(RoundedCornerShape(10.dp), onClick)
+            .padding(vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(22.dp))
@@ -485,7 +603,13 @@ private fun YouTubeBrowseView(
     onSelectCategory: (CategoryChip) -> Unit,
     onOpenVideo: (VideoItem) -> Unit
 ) {
-    val videos = if (state.activeTab == CarTab.HOME) state.homeVideos else state.searchResults
+    val videos = when (state.activeTab) {
+        CarTab.HOME -> state.homeVideos
+        CarTab.SEARCH -> state.searchResults
+        CarTab.HISTORY -> state.historyVideos
+        CarTab.SUBSCRIPTIONS -> state.homeVideos.filter { state.subscribedChannels.contains(it.channel) }
+            .ifEmpty { state.historyVideos.filter { state.subscribedChannels.contains(it.channel) } }
+    }
 
     Column(
         modifier = Modifier
@@ -504,8 +628,7 @@ private fun YouTubeBrowseView(
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .height(34.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelectCategory(chip) }
+                            .carFocusable(RoundedCornerShape(8.dp)) { onSelectCategory(chip) }
                     ) {
                         Box(
                             modifier = Modifier.padding(horizontal = 14.dp),
@@ -531,9 +654,14 @@ private fun YouTubeBrowseView(
                     CircularProgressIndicator(color = CarColors.Accent)
                 }
             }
-            state.errorMessage != null && videos.isEmpty() -> {
+            videos.isEmpty() -> {
+                val emptyText = when (state.activeTab) {
+                    CarTab.HISTORY -> "Your local watch history is empty."
+                    CarTab.SUBSCRIPTIONS -> "Subscribe to channels on any Watch page to see them here."
+                    else -> state.errorMessage ?: "No videos available."
+                }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(state.errorMessage, color = CarColors.TextSecondary, fontSize = 16.sp)
+                    Text(emptyText, color = CarColors.TextSecondary, fontSize = 16.sp)
                 }
             }
             else -> {
@@ -558,8 +686,9 @@ private fun YouTubeVideoTile(video: VideoItem, onClick: () -> Unit) {
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
+        targetValue = if (pressed || focused) 1.02f else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "yt_tile_scale"
     )
@@ -568,6 +697,18 @@ private fun YouTubeVideoTile(video: VideoItem, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+                ) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -579,6 +720,9 @@ private fun YouTubeVideoTile(video: VideoItem, onClick: () -> Unit) {
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(12.dp))
+                .then(
+                    if (focused) Modifier.border(2.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier
+                )
                 .background(CarColors.Surface)
         ) {
             AsyncImage(
@@ -682,6 +826,8 @@ private fun YouTubeWatchView(
     wideMode: Boolean,
     isFullscreen: Boolean,
     isParkedMode: Boolean,
+    isSubscribed: Boolean,
+    onToggleSubscribe: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onSelectRelated: (VideoItem) -> Unit
 ) {
@@ -737,8 +883,7 @@ private fun YouTubeWatchView(
                         .align(Alignment.TopEnd)
                         .padding(10.dp)
                         .size(38.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onToggleFullscreen)
+                        .carFocusable(CircleShape, onToggleFullscreen)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -763,15 +908,38 @@ private fun YouTubeWatchView(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     ChannelAvatar(name = stream.channel, size = 32)
                     Spacer(Modifier.width(10.dp))
                     Text(
                         text = stream.channel,
                         color = CarColors.TextPrimary,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
                     )
+                    Surface(
+                        color = if (isSubscribed) Color(0xFF272727) else Color(0xFFF1F1F1),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .height(34.dp)
+                            .carFocusable(CircleShape, onToggleSubscribe)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isSubscribed) "Subscribed" else "Subscribe",
+                                color = if (isSubscribed) Color.White else Color(0xFF0F0F0F),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -796,8 +964,7 @@ private fun YouTubeWatchView(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onSelectRelated(related) }
+                        .carFocusable(RoundedCornerShape(8.dp)) { onSelectRelated(related) }
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.Top
                 ) {

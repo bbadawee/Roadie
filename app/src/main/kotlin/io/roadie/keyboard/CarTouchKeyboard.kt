@@ -2,7 +2,15 @@ package io.roadie.keyboard
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -259,12 +267,26 @@ private fun KeyCap(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
+    var focused by remember { mutableStateOf(false) }
     Surface(
         color = background,
         shape = RoundedCornerShape(8.dp),
         modifier = modifier
             .height(42.dp)
             .clip(RoundedCornerShape(8.dp))
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+                ) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
+            .then(if (focused) Modifier.border(2.dp, Color.White, RoundedCornerShape(8.dp)) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Box(contentAlignment = Alignment.Center) {

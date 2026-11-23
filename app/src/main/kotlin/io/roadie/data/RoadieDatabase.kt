@@ -1,0 +1,84 @@
+package io.roadie.data
+
+import android.content.Context
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import io.roadie.innertube.VideoItem
+import kotlinx.coroutines.flow.Flow
+
+@Entity(tableName = "watch_history")
+data class WatchHistoryEntity(
+    @PrimaryKey val videoId: String,
+    val title: String,
+    val channel: String,
+    val durationText: String,
+    val viewCountText: String,
+    val thumbnailUrl: String,
+    val watchedAtMs: Long
+) {
+    fun toVideoItem(): VideoItem = VideoItem(
+        id = videoId,
+        title = title,
+        channel = channel,
+        durationText = durationText,
+        viewCountText = viewCountText,
+        thumbnailUrl = thumbnailUrl
+    )
+}
+
+@Entity(tableName = "subscriptions")
+data class SubscriptionEntity(
+    @PrimaryKey val channelName: String,
+    val subscribedAtMs: Long
+)
+
+@Dao
+interface RoadieDao {
+    @Query("SELECT * FROM watch_history ORDER BY watchedAtMs DESC LIMIT 60")
+    fun observeHistory(): Flow<List<WatchHistoryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertHistory(entry: WatchHistoryEntity)
+
+    @Query("DELETE FROM watch_history")
+    suspend fun clearHistory()
+
+    @Query("SELECT * FROM subscriptions ORDER BY subscribedAtMs DESC")
+    fun observeSubscriptions(): Flow<List<SubscriptionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun subscribe(entry: SubscriptionEntity)
+
+    @Query("DELETE FROM subscriptions WHERE channelName = :channelName")
+    suspend fun unsubscribe(channelName: String)
+}
+
+@Database(
+    entities = [WatchHistoryEntity::class, SubscriptionEntity::class],
+    version = 1,
+    exportSchema = false
+)
+abstract class RoadieDatabase : RoomDatabase() {
+    abstract fun dao(): RoadieDao
+
+    companion object {
+        @Volatile
+        private var instance: RoadieDatabase? = null
+
+        fun get(context: Context): RoadieDatabase =
+            instance ?: synchronized(this) {
+                instance ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    RoadieDatabase::class.java,
+                    "roadie.db"
+                ).build().also { instance = it }
+            }
+    }
+}

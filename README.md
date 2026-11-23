@@ -220,11 +220,10 @@ Yes. Roadie resolves streams directly via InnerTube and plays them with `Media3`
 
 ## Roadmap
 
-- [ ] **SponsorBlock** segment auto-skipping in `ExoPlayer`
-- [ ] **AAOS `CarUxRestrictionsManager`** live driving-state listener
-- [ ] **Kurdish (Sorani) & Persian** layouts in `CarTouchKeyboard`
-- [ ] **Local Subscriptions & Watch History** (Room DB, zero-account privacy mode)
-- [ ] **Rotary Knob / D-Pad Focus Navigation** for non-touch OEM dashboards
+- [x] **SponsorBlock** segment auto-skipping in `ExoPlayer`
+- [x] **AAOS `CarUxRestrictionsManager`** live driving-state listener
+- [x] **Local Subscriptions & Watch History** (Room DB, zero-account privacy mode)
+- [x] **Rotary Knob / D-Pad Focus Navigation** for non-touch OEM dashboards
 
 ---
 
