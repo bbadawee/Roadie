@@ -128,12 +128,22 @@ The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 </tr>
 <tr>
 <td width="50%" valign="top">
-<h3>Built-in EN / عربي Car Keyboard</h3>
-<p><code>CarTouchKeyboard</code> renders <code>50dp</code> driver-friendly keys inside Compose with instant <code>EN / عربي</code> switching, RTL/LTR entry bar, Arabic numerals (<code>١٢٣</code>), and long-press <code>أ / إ / آ</code> variants.</p>
+<h3>SponsorBlock + DeArrow + Chapters</h3>
+<p>Auto-skips sponsor/intro segments via <code>SponsorBlockClient</code>, cleans clickbait titles via <code>DeArrowClient</code>, and extracts clickable timestamp chapters from video descriptions.</p>
 </td>
 <td width="50%" valign="top">
-<h3>Clean-Room InnerTube Client</h3>
-<p><code>InnerTubeClient</code> queries structured JSON endpoints (<code>browse</code>, <code>search</code>, <code>player</code>, <code>next</code>) with <code>OkHttp</code> and <code>kotlinx.serialization</code>—zero HTML scraping and zero Google Play Services.</p>
+<h3>Up-Next Queue, Audio-Only &amp; Hotspot Saver</h3>
+<p>Build a drive queue (<code>Play next</code> / <code>+Queue</code>), switch to <strong>Audio-Only</strong> anytime, cap video to <code>480p</code> on mobile hotspots, and duck audio cleanly for Maps/Waze prompts.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<h3>Takeout / NewPipe Import &amp; Wi-Fi Companion</h3>
+<p>Import subscriptions from Google Takeout CSV or NewPipe JSON with zero login, or start the built-in <strong>Send to Car</strong> Wi-Fi page (<code>:8765</code>) so passengers can queue links from any phone.</p>
+</td>
+<td width="50%" valign="top">
+<h3>Built-in EN / عربي Car Keyboard</h3>
+<p><code>CarTouchKeyboard</code> renders <code>50dp</code> driver-friendly keys inside Compose with instant <code>EN / عربي</code> switching, RTL/LTR entry bar, Arabic numerals (<code>١٢٣</code>), and long-press <code>أ / إ / آ</code> variants.</p>
 </td>
 </tr>
 </tbody>
@@ -175,7 +185,8 @@ flowchart LR
 | :--- | :---: | :--- |
 | `< 500 dp` | `1` | Stacked (Player top, Queue bottom) |
 | `500 – 779 dp` | `2` | Stacked |
-| `>= 780 dp` | `3` | Split-screen when `width >= 820 dp && height >= 300 dp && landscape` |
+| `780 – 1179 dp` | `3` | Split-screen when `width >= 820 dp && height >= 300 dp && landscape` |
+| `>= 1180 dp` | `4` | Ultrawide (`21:9` / `1920×720`) tuned split Player + Queue |
 
 ### Package Structure
 
@@ -231,10 +242,13 @@ Yes. Roadie resolves streams directly via InnerTube and plays them with `Media3`
 
 ## Roadmap
 
-- [x] **SponsorBlock** segment auto-skipping in `ExoPlayer`
-- [x] **AAOS `CarUxRestrictionsManager`** live driving-state listener
-- [x] **Local Subscriptions & Watch History** (Room DB, zero-account privacy mode)
+- [x] **SponsorBlock & DeArrow** segment auto-skipping + clean non-clickbait titles
+- [x] **Up-Next Queue, Chapters & Audio-Only / Hotspot Saver (480p)**
+- [x] **Google Takeout CSV / NewPipe JSON Import & Export**
+- [x] **Send to Car Wi-Fi Companion** (passenger phone-to-car queuing without Google Cast)
+- [x] **AAOS `CarUxRestrictionsManager`** live driving-state listener + Maps/Waze audio ducking
 - [x] **Rotary Knob / D-Pad Focus Navigation** for non-touch OEM dashboards
+- [ ] **Optional OAuth TV Device-Code Sign-In** (opt-in sync without Google Play Services)
 
 ---
 

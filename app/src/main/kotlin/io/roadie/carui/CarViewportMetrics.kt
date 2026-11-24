@@ -21,10 +21,14 @@ data class CarViewportMetrics(
 
     val browseColumns: Int
         get() = when {
+            logicalWidthDp >= 1180f -> 4
             logicalWidthDp >= 780f -> 3
             logicalWidthDp >= 500f -> 2
             else -> 1
         }
+
+    val isUltrawide: Boolean
+        get() = logicalHeightDp > 0f && logicalWidthDp >= 1200f && (logicalWidthDp / logicalHeightDp) >= 2.1f
 
     val useWideWatchLayout: Boolean
         get() = logicalWidthDp >= 820f && logicalHeightDp >= 300f && logicalWidthDp > logicalHeightDp

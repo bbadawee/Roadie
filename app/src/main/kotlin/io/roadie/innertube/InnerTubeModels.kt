@@ -14,6 +14,14 @@ data class VideoItem(
     val isLive: Boolean = false
 )
 
+/** Timestamp chapter parsed from video description. */
+@Serializable
+data class VideoChapter(
+    val title: String,
+    val startMs: Long,
+    val timestampLabel: String
+)
+
 /** Resolved playback streams and metadata for a video ID. */
 @Serializable
 data class ResolvedStream(
@@ -24,6 +32,7 @@ data class ResolvedStream(
     val audioUrl: String? = null,
     val isHls: Boolean = false,
     val thumbnailUrl: String = "",
+    val chapters: List<VideoChapter> = emptyList(),
     val relatedVideos: List<VideoItem> = emptyList()
 )
 

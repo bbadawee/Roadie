@@ -5,7 +5,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.roadie.data.RoadieDatabase
 import io.roadie.data.SubscriptionEntity
+import io.roadie.data.SubscriptionImporter
 import io.roadie.data.WatchHistoryEntity
+import io.roadie.innertube.DeArrowClient
 import io.roadie.innertube.InnerTubeClient
 import io.roadie.innertube.ResolvedStream
 import io.roadie.innertube.SponsorBlockClient
@@ -39,18 +41,26 @@ data class RoadieUiState(
     val homeVideos: List<VideoItem> = emptyList(),
     val searchResults: List<VideoItem> = emptyList(),
     val historyVideos: List<VideoItem> = emptyList(),
+    val queue: List<VideoItem> = emptyList(),
     val subscribedChannels: Set<String> = emptySet(),
     val searchQuery: String = "",
     val showKeyboard: Boolean = false,
+    val showSettings: Boolean = false,
     val loadingFeed: Boolean = false,
     val loadingStream: Boolean = false,
     val currentStream: ResolvedStream? = null,
+    val deArrowTitle: String? = null,
     val resumePositionMs: Long = 0L,
     val playbackSpeed: Float = 1.0f,
     val sponsorSegments: List<SponsorSegment> = emptyList(),
     val isFullscreen: Boolean = false,
     val isParkedMode: Boolean = true,
     val isHardwareDrivingRestricted: Boolean = false,
+    val audioOnlyMode: Boolean = false,
+    val hotspotSaverMode: Boolean = false,
+    val deArrowEnabled: Boolean = true,
+    val companionServerUrl: String? = null,
+    val statusNotice: String? = null,
     val errorMessage: String? = null
 )
 
@@ -60,6 +70,7 @@ class RoadieViewModel(
 
     private val client = InnerTubeClient()
     private val sponsorBlock = SponsorBlockClient()
+    private val deArrow = DeArrowClient()
     private val dao = RoadieDatabase.get(application).dao()
 
     private val _state = MutableStateFlow(RoadieUiState())
@@ -170,6 +181,120 @@ class RoadieViewModel(
         _state.update { it.copy(errorMessage = null) }
     }
 
+    fun clearStatusNotice() {
+        _state.update { it.copy(statusNotice = null) }
+    }
+
+    fun setSettingsVisible(visible: Boolean) {
+        _state.update { it.copy(showSettings = visible) }
+    }
+
+    fun toggleAudioOnlyMode() {
+        _state.update { it.copy(audioOnlyMode = !it.audioOnlyMode) }
+    }
+
+    fun toggleHotspotSaverMode() {
+        _state.update {
+            val next = !it.hotspotSaverMode
+            it.copy(
+                hotspotSaverMode = next,
+                statusNotice = if (next) "Hotspot Saver: capped to 480p" else "Hotspot Saver off"
+            )
+        }
+    }
+
+    fun toggleDeArrow() {
+        _state.update { it.copy(deArrowEnabled = !it.deArrowEnabled) }
+    }
+
+    fun setCompanionServerUrl(url: String?) {
+        _state.update { it.copy(companionServerUrl = url) }
+    }
+
+    fun enqueueNext(video: VideoItem) {
+        _state.update { state ->
+            val filtered = state.queue.filterNot { it.id == video.id }
+            state.copy(
+                queue = listOf(video) + filtered,
+                statusNotice = "Playing next: ${video.title}"
+            )
+        }
+    }
+
+    fun enqueueEnd(video: VideoItem) {
+        _state.update { state ->
+            if (state.queue.any { it.id == video.id }) return@update state
+            state.copy(
+                queue = state.queue + video,
+                statusNotice = "Added to queue: ${video.title}"
+            )
+        }
+    }
+
+    fun removeFromQueue(videoId: String) {
+        _state.update { state ->
+            state.copy(queue = state.queue.filterNot { it.id == videoId })
+        }
+    }
+
+    fun clearQueue() {
+        _state.update { it.copy(queue = emptyList()) }
+    }
+
+    fun playNextFromQueue() {
+        val next = _state.value.queue.firstOrNull() ?: return
+        _state.update { it.copy(queue = it.queue.drop(1)) }
+        openVideo(next)
+    }
+
+    fun importSubscriptions(rawContent: String) {
+        val channels = SubscriptionImporter.parseChannelNames(rawContent)
+        if (channels.isEmpty()) {
+            _state.update { it.copy(errorMessage = "No channels found. Select a YouTube Takeout CSV or NewPipe JSON file.") }
+            return
+        }
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            dao.subscribeAll(channels.map { SubscriptionEntity(channelName = it, subscribedAtMs = now) })
+            _state.update { it.copy(statusNotice = "Imported ${channels.size} subscriptions") }
+        }
+    }
+
+    fun exportSubscriptionsJson(): String =
+        SubscriptionImporter.exportToJson(_state.value.subscribedChannels)
+
+    fun queueOrPlayVideoId(videoId: String, autoPlayIfIdle: Boolean = true) {
+        if (videoId.isBlank()) return
+        viewModelScope.launch {
+            val existing = _state.value.homeVideos.firstOrNull { it.id == videoId }
+                ?: _state.value.searchResults.firstOrNull { it.id == videoId }
+            if (existing != null) {
+                if (autoPlayIfIdle && _state.value.currentStream == null) {
+                    openVideo(existing)
+                } else {
+                    enqueueEnd(existing)
+                }
+                return@launch
+            }
+            when (val result = client.resolveStream(videoId)) {
+                is StreamResult.Success -> {
+                    val item = VideoItem(
+                        id = result.stream.videoId,
+                        title = result.stream.title,
+                        channel = result.stream.channel,
+                        thumbnailUrl = result.stream.thumbnailUrl
+                    )
+                    if (autoPlayIfIdle && _state.value.currentStream == null) {
+                        openVideo(item)
+                    } else {
+                        enqueueEnd(item)
+                    }
+                }
+                is StreamResult.Error -> _state.update { it.copy(errorMessage = result.reason) }
+            }
+        }
+    }
+
     fun loadHome() {
         viewModelScope.launch {
             _state.update { it.copy(loadingFeed = true, errorMessage = null) }
@@ -207,6 +332,7 @@ class RoadieViewModel(
                     loadingStream = true,
                     showKeyboard = false,
                     sponsorSegments = emptyList(),
+                    deArrowTitle = null,
                     resumePositionMs = 0L,
                     errorMessage = null
                 )
@@ -218,6 +344,20 @@ class RoadieViewModel(
                         state.copy(sponsorSegments = segments)
                     } else {
                         state
+                    }
+                }
+            }
+            if (_state.value.deArrowEnabled) {
+                launch {
+                    val cleanTitle = deArrow.fetchCleanTitle(video.id)
+                    if (cleanTitle != null) {
+                        _state.update { state ->
+                            if (state.currentStream?.videoId == video.id || state.loadingStream) {
+                                state.copy(deArrowTitle = cleanTitle)
+                            } else {
+                                state
+                            }
+                        }
                     }
                 }
             }
@@ -255,6 +395,7 @@ class RoadieViewModel(
         _state.update {
             it.copy(
                 currentStream = null,
+                deArrowTitle = null,
                 isFullscreen = false,
                 sponsorSegments = emptyList(),
                 resumePositionMs = 0L

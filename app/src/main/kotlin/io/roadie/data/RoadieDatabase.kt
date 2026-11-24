@@ -63,6 +63,9 @@ interface RoadieDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun subscribe(entry: SubscriptionEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun subscribeAll(entries: List<SubscriptionEntity>)
+
     @Query("DELETE FROM subscriptions WHERE channelName = :channelName")
     suspend fun unsubscribe(channelName: String)
 }

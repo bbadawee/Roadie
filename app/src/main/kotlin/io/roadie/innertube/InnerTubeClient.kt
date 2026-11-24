@@ -170,6 +170,8 @@ class InnerTubeClient(
         val details = root["videoDetails"]?.jsonObject
         val title = details?.get("title")?.jsonPrimitive?.contentOrNull ?: "Untitled"
         val channel = details?.get("author")?.jsonPrimitive?.contentOrNull ?: ""
+        val description = details?.get("shortDescription")?.jsonPrimitive?.contentOrNull ?: ""
+        val chapters = ChapterParser.parse(description)
         val thumb = details?.get("thumbnail")?.jsonObject
             ?.get("thumbnails")?.jsonArray?.lastOrNull()?.jsonObject
             ?.get("url")?.jsonPrimitive?.contentOrNull
@@ -181,9 +183,10 @@ class InnerTubeClient(
                 title = title,
                 channel = channel,
                 streamUrl = finalUrl,
-                audioUrl = if (hlsUrl == null && progressiveUrl == null) adaptiveAudioUrl else null,
+                audioUrl = adaptiveAudioUrl,
                 isHls = hlsUrl != null,
-                thumbnailUrl = thumb
+                thumbnailUrl = thumb,
+                chapters = chapters
             )
         )
     }
