@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Fullscreen
@@ -65,6 +66,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
@@ -236,12 +238,14 @@ fun RoadieApp(
         onDispose { activePlayer?.removeListener(listener) }
     }
 
-    LaunchedEffect(state.hotspotSaverMode, player) {
+    LaunchedEffect(state.videoQuality, player) {
         val activePlayer = player ?: return@LaunchedEffect
+        val maxW = state.videoQuality.maxWidth
+        val maxH = state.videoQuality.maxHeight
         val params = activePlayer.trackSelectionParameters.buildUpon()
             .apply {
-                if (state.hotspotSaverMode) {
-                    setMaxVideoSize(854, 480)
+                if (maxW != null && maxH != null) {
+                    setMaxVideoSize(maxW, maxH)
                 } else {
                     clearVideoSizeConstraints()
                 }
@@ -375,6 +379,7 @@ fun RoadieApp(
                             ) { stream ->
                                 if (stream != null) {
                                     val subscribed = state.subscribedChannels.contains(stream.channel)
+                                    val bookmarked = state.bookmarkedIds.contains(stream.videoId)
                                     YouTubeWatchView(
                                         stream = stream,
                                         displayTitle = state.deArrowTitle ?: stream.title,
@@ -386,10 +391,14 @@ fun RoadieApp(
                                         isParkedMode = state.isParkedMode,
                                         audioOnlyMode = state.audioOnlyMode,
                                         playbackSpeed = state.playbackSpeed,
+                                        videoQualityLabel = state.videoQuality.label,
                                         isSubscribed = subscribed,
+                                        isBookmarked = bookmarked,
                                         queue = state.queue,
                                         onToggleAudioOnly = viewModel::toggleAudioOnlyMode,
                                         onCycleSpeed = viewModel::cyclePlaybackSpeed,
+                                        onCycleQuality = viewModel::cycleVideoQuality,
+                                        onToggleBookmark = viewModel::toggleCurrentBookmark,
                                         onToggleSubscribe = { viewModel.toggleSubscription(stream.channel) },
                                         onToggleFullscreen = viewModel::toggleFullscreen,
                                         onSeekTo = { ms -> player?.seekTo(ms) },
@@ -710,6 +719,13 @@ private fun YouTubeMiniRail(
         )
         Spacer(Modifier.height(6.dp))
         MiniRailButton(
+            icon = if (activeTab == CarTab.SAVED) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
+            label = "Saved",
+            selected = activeTab == CarTab.SAVED,
+            onClick = { onSelectTab(CarTab.SAVED) }
+        )
+        Spacer(Modifier.height(6.dp))
+        MiniRailButton(
             icon = if (activeTab == CarTab.HISTORY) Icons.Default.History else Icons.Outlined.History,
             label = "History",
             selected = activeTab == CarTab.HISTORY,
@@ -755,6 +771,7 @@ private fun YouTubeBrowseView(
     val videos = when (state.activeTab) {
         CarTab.HOME -> state.homeVideos
         CarTab.SEARCH -> state.searchResults
+        CarTab.SAVED -> state.bookmarkedVideos
         CarTab.HISTORY -> state.historyVideos
         CarTab.SUBSCRIPTIONS -> state.homeVideos.filter { state.subscribedChannels.contains(it.channel) }
             .ifEmpty { state.historyVideos.filter { state.subscribedChannels.contains(it.channel) } }
@@ -805,6 +822,7 @@ private fun YouTubeBrowseView(
             }
             videos.isEmpty() -> {
                 val emptyText = when (state.activeTab) {
+                    CarTab.SAVED -> "No saved videos yet. Tap Save on any Watch page."
                     CarTab.HISTORY -> "Your local watch history is empty."
                     CarTab.SUBSCRIPTIONS -> "Subscribe to channels on any Watch page to see them here."
                     else -> state.errorMessage ?: "No videos available."
@@ -1001,10 +1019,14 @@ private fun YouTubeWatchView(
     isParkedMode: Boolean,
     audioOnlyMode: Boolean,
     playbackSpeed: Float,
+    videoQualityLabel: String,
     isSubscribed: Boolean,
+    isBookmarked: Boolean,
     queue: List<VideoItem>,
     onToggleAudioOnly: () -> Unit,
     onCycleSpeed: () -> Unit,
+    onCycleQuality: () -> Unit,
+    onToggleBookmark: () -> Unit,
     onToggleSubscribe: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -1192,6 +1214,53 @@ private fun YouTubeWatchView(
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = "Audio",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = Color(0xFF272727),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .height(34.dp)
+                            .carFocusable(CircleShape, onCycleQuality)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = videoQualityLabel,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = if (isBookmarked) CarColors.Accent.copy(alpha = 0.25f) else Color(0xFF272727),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .height(34.dp)
+                            .carFocusable(CircleShape, onToggleBookmark)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
+                                contentDescription = "Save",
+                                tint = if (isBookmarked) CarColors.Accent else Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = if (isBookmarked) "Saved" else "Save",
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium

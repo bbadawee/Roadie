@@ -72,6 +72,7 @@ class RoadiePlaybackService : MediaLibraryService() {
                 val folders = listOf(
                     folderItem("home", "Home"),
                     folderItem("subscriptions", "Subscriptions"),
+                    folderItem("saved", "Saved"),
                     folderItem("history", "History")
                 )
                 return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(folders), params))
@@ -81,6 +82,9 @@ class RoadiePlaybackService : MediaLibraryService() {
             serviceScope.launch {
                 val dao = RoadieDatabase.get(applicationContext).dao()
                 val items = when (parentId) {
+                    "saved" -> runCatching {
+                        dao.observeBookmarks().first().map { it.toVideoItem().toMediaItem() }
+                    }.getOrDefault(emptyList())
                     "history" -> runCatching {
                         dao.observeHistory().first().map { it.toVideoItem().toMediaItem() }
                     }.getOrDefault(emptyList())

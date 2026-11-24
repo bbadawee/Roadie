@@ -40,6 +40,26 @@ data class SubscriptionEntity(
     val subscribedAtMs: Long
 )
 
+@Entity(tableName = "bookmarks")
+data class BookmarkEntity(
+    @PrimaryKey val videoId: String,
+    val title: String,
+    val channel: String,
+    val durationText: String,
+    val viewCountText: String,
+    val thumbnailUrl: String,
+    val savedAtMs: Long
+) {
+    fun toVideoItem(): VideoItem = VideoItem(
+        id = videoId,
+        title = title,
+        channel = channel,
+        durationText = durationText,
+        viewCountText = viewCountText,
+        thumbnailUrl = thumbnailUrl
+    )
+}
+
 @Dao
 interface RoadieDao {
     @Query("SELECT * FROM watch_history ORDER BY watchedAtMs DESC LIMIT 60")
@@ -68,11 +88,20 @@ interface RoadieDao {
 
     @Query("DELETE FROM subscriptions WHERE channelName = :channelName")
     suspend fun unsubscribe(channelName: String)
+
+    @Query("SELECT * FROM bookmarks ORDER BY savedAtMs DESC")
+    fun observeBookmarks(): Flow<List<BookmarkEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBookmark(entry: BookmarkEntity)
+
+    @Query("DELETE FROM bookmarks WHERE videoId = :videoId")
+    suspend fun deleteBookmark(videoId: String)
 }
 
 @Database(
-    entities = [WatchHistoryEntity::class, SubscriptionEntity::class],
-    version = 2,
+    entities = [WatchHistoryEntity::class, SubscriptionEntity::class, BookmarkEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class RoadieDatabase : RoomDatabase() {

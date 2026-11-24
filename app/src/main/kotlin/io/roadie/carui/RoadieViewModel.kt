@@ -3,6 +3,7 @@ package io.roadie.carui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.roadie.data.BookmarkEntity
 import io.roadie.data.RoadieDatabase
 import io.roadie.data.SubscriptionEntity
 import io.roadie.data.SubscriptionImporter
@@ -20,7 +21,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class CarTab { HOME, SEARCH, SUBSCRIPTIONS, HISTORY }
+enum class CarTab { HOME, SEARCH, SUBSCRIPTIONS, SAVED, HISTORY }
+
+enum class VideoQualityPreset(
+    val label: String,
+    val maxWidth: Int?,
+    val maxHeight: Int?
+) {
+    AUTO("Auto", null, null),
+    P1080("1080p", 1920, 1080),
+    P720("720p", 1280, 720),
+    P480("480p", 854, 480),
+    P360("360p", 640, 360)
+}
 
 data class CategoryChip(val label: String, val query: String?)
 
@@ -41,6 +54,8 @@ data class RoadieUiState(
     val homeVideos: List<VideoItem> = emptyList(),
     val searchResults: List<VideoItem> = emptyList(),
     val historyVideos: List<VideoItem> = emptyList(),
+    val bookmarkedVideos: List<VideoItem> = emptyList(),
+    val bookmarkedIds: Set<String> = emptySet(),
     val queue: List<VideoItem> = emptyList(),
     val subscribedChannels: Set<String> = emptySet(),
     val searchQuery: String = "",
@@ -52,6 +67,7 @@ data class RoadieUiState(
     val deArrowTitle: String? = null,
     val resumePositionMs: Long = 0L,
     val playbackSpeed: Float = 1.0f,
+    val videoQuality: VideoQualityPreset = VideoQualityPreset.AUTO,
     val sponsorSegments: List<SponsorSegment> = emptyList(),
     val isFullscreen: Boolean = false,
     val isParkedMode: Boolean = true,
@@ -86,6 +102,16 @@ class RoadieViewModel(
         viewModelScope.launch {
             dao.observeSubscriptions().collect { subs ->
                 _state.update { it.copy(subscribedChannels = subs.map { s -> s.channelName }.toSet()) }
+            }
+        }
+        viewModelScope.launch {
+            dao.observeBookmarks().collect { entries ->
+                _state.update {
+                    it.copy(
+                        bookmarkedVideos = entries.map(BookmarkEntity::toVideoItem),
+                        bookmarkedIds = entries.map { b -> b.videoId }.toSet()
+                    )
+                }
             }
         }
     }
@@ -198,9 +224,57 @@ class RoadieViewModel(
             val next = !it.hotspotSaverMode
             it.copy(
                 hotspotSaverMode = next,
+                videoQuality = if (next) VideoQualityPreset.P480 else VideoQualityPreset.AUTO,
                 statusNotice = if (next) "Hotspot Saver: capped to 480p" else "Hotspot Saver off"
             )
         }
+    }
+
+    fun cycleVideoQuality() {
+        _state.update { state ->
+            val presets = VideoQualityPreset.entries
+            val next = presets[(state.videoQuality.ordinal + 1) % presets.size]
+            state.copy(
+                videoQuality = next,
+                hotspotSaverMode = next == VideoQualityPreset.P480 || next == VideoQualityPreset.P360,
+                statusNotice = "Quality: ${next.label}"
+            )
+        }
+    }
+
+    fun toggleBookmark(video: VideoItem) {
+        if (video.id.isBlank()) return
+        viewModelScope.launch {
+            if (_state.value.bookmarkedIds.contains(video.id)) {
+                dao.deleteBookmark(video.id)
+                _state.update { it.copy(statusNotice = "Removed from Saved") }
+            } else {
+                dao.upsertBookmark(
+                    BookmarkEntity(
+                        videoId = video.id,
+                        title = video.title,
+                        channel = video.channel,
+                        durationText = video.durationText,
+                        viewCountText = video.viewCountText,
+                        thumbnailUrl = video.thumbnailUrl,
+                        savedAtMs = System.currentTimeMillis()
+                    )
+                )
+                _state.update { it.copy(statusNotice = "Saved locally") }
+            }
+        }
+    }
+
+    fun toggleCurrentBookmark() {
+        val stream = _state.value.currentStream ?: return
+        toggleBookmark(
+            VideoItem(
+                id = stream.videoId,
+                title = _state.value.deArrowTitle ?: stream.title,
+                channel = stream.channel,
+                thumbnailUrl = stream.thumbnailUrl
+            )
+        )
     }
 
     fun toggleDeArrow() {
