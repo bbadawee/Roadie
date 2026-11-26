@@ -29,4 +29,18 @@ class CarViewportMetricsTest {
         assertFalse(metrics.useWideWatchLayout)
         assertEquals(3, metrics.browseColumns)
     }
+
+    @Test
+    fun `widescreen split screen 640x720 switches to stacked watch layout`() {
+        val metrics = CarViewportMetrics(widthDp = 640f, heightDp = 720f)
+        assertFalse(metrics.useWideWatchLayout)
+        assertEquals(3, metrics.browseColumns)
+    }
+
+    @Test
+    fun `ultrawide split screen 960x720 keeps side-by-side watch layout`() {
+        val metrics = CarViewportMetrics(widthDp = 960f, heightDp = 720f)
+        assertTrue(metrics.useWideWatchLayout)
+        assertEquals(3, metrics.browseColumns)
+    }
 }

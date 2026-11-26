@@ -3,6 +3,12 @@ package io.roadie.carui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.roadie.auth.DeviceCodePrompt
+import io.roadie.auth.DeviceCodeStartResult
+import io.roadie.auth.DeviceTokenPollResult
+import io.roadie.auth.GoogleAccountSession
+import io.roadie.auth.UserPlaylist
+import io.roadie.auth.YouTubeOAuthClient
 import io.roadie.data.BookmarkEntity
 import io.roadie.data.RoadieDatabase
 import io.roadie.data.SubscriptionEntity
@@ -15,6 +21,8 @@ import io.roadie.innertube.SponsorBlockClient
 import io.roadie.innertube.SponsorSegment
 import io.roadie.innertube.StreamResult
 import io.roadie.innertube.VideoItem
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -76,6 +84,16 @@ data class RoadieUiState(
     val hotspotSaverMode: Boolean = false,
     val deArrowEnabled: Boolean = true,
     val companionServerUrl: String? = null,
+    val googleAccount: GoogleAccountSession? = null,
+    val oauthClientId: String = "",
+    val oauthClientSecret: String = "",
+    val deviceCodePrompt: DeviceCodePrompt? = null,
+    val authStatusMessage: String? = null,
+    val userPlaylists: List<UserPlaylist> = emptyList(),
+    val selectedPlaylistId: String? = null,
+    val selectedPlaylistTitle: String? = null,
+    val playlistVideos: List<VideoItem> = emptyList(),
+    val loadingLibrary: Boolean = false,
     val statusNotice: String? = null,
     val errorMessage: String? = null
 )
@@ -87,13 +105,24 @@ class RoadieViewModel(
     private val client = InnerTubeClient()
     private val sponsorBlock = SponsorBlockClient()
     private val deArrow = DeArrowClient()
+    private val oauthClient = YouTubeOAuthClient(application)
     private val dao = RoadieDatabase.get(application).dao()
+    private var authPollJob: Job? = null
 
-    private val _state = MutableStateFlow(RoadieUiState())
+    private val _state = MutableStateFlow(
+        RoadieUiState(
+            googleAccount = oauthClient.getSavedSession(),
+            oauthClientId = oauthClient.getClientId(),
+            oauthClientSecret = oauthClient.getClientSecret()
+        )
+    )
     val state: StateFlow<RoadieUiState> = _state.asStateFlow()
 
     init {
         loadHome()
+        if (_state.value.googleAccount != null) {
+            syncGoogleLibrary()
+        }
         viewModelScope.launch {
             dao.observeHistory().collect { entries ->
                 _state.update { it.copy(historyVideos = entries.map(WatchHistoryEntity::toVideoItem)) }
@@ -473,6 +502,143 @@ class RoadieViewModel(
                 isFullscreen = false,
                 sponsorSegments = emptyList(),
                 resumePositionMs = 0L
+            )
+        }
+    }
+
+    fun saveOAuthCredentials(clientId: String, clientSecret: String) {
+        oauthClient.saveOAuthCredentials(clientId, clientSecret)
+        _state.update {
+            it.copy(
+                oauthClientId = clientId.trim(),
+                oauthClientSecret = clientSecret.trim(),
+                authStatusMessage = "OAuth credentials saved"
+            )
+        }
+    }
+
+    fun startGoogleSignIn() {
+        authPollJob?.cancel()
+        authPollJob = viewModelScope.launch {
+            _state.update { it.copy(authStatusMessage = "Requesting Google sign-in code...", errorMessage = null) }
+            when (val res = oauthClient.startDeviceCodeFlow()) {
+                is DeviceCodeStartResult.Error -> {
+                    _state.update { it.copy(deviceCodePrompt = null, authStatusMessage = res.message) }
+                }
+                is DeviceCodeStartResult.Ready -> {
+                    val prompt = res.prompt
+                    _state.update {
+                        it.copy(
+                            deviceCodePrompt = prompt,
+                            authStatusMessage = "Waiting for approval on your phone..."
+                        )
+                    }
+                    var intervalMs = prompt.intervalSeconds * 1000L
+                    val deadlineMs = System.currentTimeMillis() + (prompt.expiresInSeconds * 1000L)
+                    while (System.currentTimeMillis() < deadlineMs) {
+                        delay(intervalMs)
+                        when (val poll = oauthClient.pollForToken(prompt.deviceCode)) {
+                            is DeviceTokenPollResult.Pending -> Unit
+                            is DeviceTokenPollResult.SlowDown -> intervalMs += 3000L
+                            is DeviceTokenPollResult.Error -> {
+                                _state.update { it.copy(deviceCodePrompt = null, authStatusMessage = poll.message) }
+                                return@launch
+                            }
+                            is DeviceTokenPollResult.SignedIn -> {
+                                _state.update {
+                                    it.copy(
+                                        googleAccount = poll.session,
+                                        deviceCodePrompt = null,
+                                        authStatusMessage = null,
+                                        statusNotice = "Signed in as ${poll.session.email.ifBlank { poll.session.displayName }}"
+                                    )
+                                }
+                                syncGoogleLibrary()
+                                return@launch
+                            }
+                        }
+                    }
+                    _state.update {
+                        it.copy(deviceCodePrompt = null, authStatusMessage = "Sign-in code expired. Try again.")
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelGoogleSignIn() {
+        authPollJob?.cancel()
+        authPollJob = null
+        _state.update { it.copy(deviceCodePrompt = null, authStatusMessage = null) }
+    }
+
+    fun signOutGoogle() {
+        authPollJob?.cancel()
+        authPollJob = null
+        oauthClient.clearSession()
+        _state.update {
+            it.copy(
+                googleAccount = null,
+                deviceCodePrompt = null,
+                authStatusMessage = null,
+                userPlaylists = emptyList(),
+                selectedPlaylistId = null,
+                selectedPlaylistTitle = null,
+                playlistVideos = emptyList(),
+                statusNotice = "Signed out"
+            )
+        }
+    }
+
+    fun syncGoogleLibrary() {
+        if (_state.value.googleAccount == null) return
+        viewModelScope.launch {
+            _state.update { it.copy(loadingLibrary = true) }
+            val playlists = oauthClient.fetchUserPlaylists()
+            val subs = oauthClient.fetchUserSubscriptions()
+            if (subs.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                dao.subscribeAll(subs.map { SubscriptionEntity(channelName = it, subscribedAtMs = now) })
+            }
+            _state.update {
+                it.copy(
+                    userPlaylists = playlists,
+                    loadingLibrary = false,
+                    statusNotice = if (playlists.isNotEmpty() || subs.isNotEmpty()) {
+                        "Synced ${playlists.size} playlists & ${subs.size} subscriptions"
+                    } else {
+                        it.statusNotice
+                    }
+                )
+            }
+        }
+    }
+
+    fun openPlaylist(playlist: UserPlaylist) {
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    loadingLibrary = true,
+                    selectedPlaylistId = playlist.id,
+                    selectedPlaylistTitle = playlist.title
+                )
+            }
+            val videos = oauthClient.fetchPlaylistVideos(playlist.id)
+            _state.update {
+                it.copy(
+                    playlistVideos = videos,
+                    loadingLibrary = false
+                )
+            }
+        }
+    }
+
+    fun clearSelectedPlaylist() {
+        _state.update {
+            it.copy(
+                selectedPlaylistId = null,
+                selectedPlaylistTitle = null,
+                playlistVideos = emptyList()
             )
         }
     }

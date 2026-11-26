@@ -45,8 +45,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -75,6 +77,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -120,6 +124,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import io.roadie.app.CarCompanionServer
+import io.roadie.auth.UserPlaylist
 import io.roadie.innertube.ResolvedStream
 import io.roadie.innertube.SponsorSegment
 import io.roadie.innertube.VideoChapter
@@ -414,7 +419,9 @@ fun RoadieApp(
                                         columns = metrics.browseColumns,
                                         onSelectCategory = viewModel::selectCategory,
                                         onOpenVideo = viewModel::openVideo,
-                                        onEnqueueEnd = viewModel::enqueueEnd
+                                        onEnqueueEnd = viewModel::enqueueEnd,
+                                        onOpenPlaylist = viewModel::openPlaylist,
+                                        onClearPlaylist = viewModel::clearSelectedPlaylist
                                     )
                                 }
                             }
@@ -477,7 +484,12 @@ fun RoadieApp(
                                     },
                                     onExportSubs = {
                                         exportSubsLauncher.launch("roadie-subscriptions.json")
-                                    }
+                                    },
+                                    onSaveOAuthCredentials = viewModel::saveOAuthCredentials,
+                                    onStartGoogleSignIn = viewModel::startGoogleSignIn,
+                                    onCancelGoogleSignIn = viewModel::cancelGoogleSignIn,
+                                    onSignOutGoogle = viewModel::signOutGoogle,
+                                    onSyncGoogleLibrary = viewModel::syncGoogleLibrary
                                 )
                             }
 
@@ -766,12 +778,14 @@ private fun YouTubeBrowseView(
     columns: Int,
     onSelectCategory: (CategoryChip) -> Unit,
     onOpenVideo: (VideoItem) -> Unit,
-    onEnqueueEnd: (VideoItem) -> Unit
+    onEnqueueEnd: (VideoItem) -> Unit,
+    onOpenPlaylist: (UserPlaylist) -> Unit,
+    onClearPlaylist: () -> Unit
 ) {
     val videos = when (state.activeTab) {
         CarTab.HOME -> state.homeVideos
         CarTab.SEARCH -> state.searchResults
-        CarTab.SAVED -> state.bookmarkedVideos
+        CarTab.SAVED -> if (state.selectedPlaylistId != null) state.playlistVideos else state.bookmarkedVideos
         CarTab.HISTORY -> state.historyVideos
         CarTab.SUBSCRIPTIONS -> state.homeVideos.filter { state.subscribedChannels.contains(it.channel) }
             .ifEmpty { state.historyVideos.filter { state.subscribedChannels.contains(it.channel) } }
@@ -810,12 +824,64 @@ private fun YouTubeBrowseView(
                     }
                 }
             }
+        } else if (state.activeTab == CarTab.SAVED && (state.userPlaylists.isNotEmpty() || state.selectedPlaylistId != null)) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                item(key = "all_saved") {
+                    val selected = state.selectedPlaylistId == null
+                    Surface(
+                        color = if (selected) Color(0xFFF1F1F1) else Color(0xFF272727),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .carFocusable(RoundedCornerShape(8.dp), onClearPlaylist)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Saved (${state.bookmarkedVideos.size})",
+                                color = if (selected) Color(0xFF0F0F0F) else Color(0xFFF1F1F1),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+                items(state.userPlaylists, key = { it.id }) { playlist ->
+                    val selected = state.selectedPlaylistId == playlist.id
+                    Surface(
+                        color = if (selected) Color(0xFFF1F1F1) else Color(0xFF272727),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .carFocusable(RoundedCornerShape(8.dp)) { onOpenPlaylist(playlist) }
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${playlist.title} (${playlist.itemCount})",
+                                color = if (selected) Color(0xFF0F0F0F) else Color(0xFFF1F1F1),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
         } else {
             Spacer(Modifier.height(12.dp))
         }
 
         when {
-            state.loadingFeed -> {
+            state.loadingFeed || (state.activeTab == CarTab.SAVED && state.loadingLibrary) -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = CarColors.Accent)
                 }
@@ -1508,8 +1574,17 @@ private fun CarSettingsOverlay(
     onToggleDeArrow: () -> Unit,
     onToggleCompanion: () -> Unit,
     onImportSubs: () -> Unit,
-    onExportSubs: () -> Unit
+    onExportSubs: () -> Unit,
+    onSaveOAuthCredentials: (String, String) -> Unit,
+    onStartGoogleSignIn: () -> Unit,
+    onCancelGoogleSignIn: () -> Unit,
+    onSignOutGoogle: () -> Unit,
+    onSyncGoogleLibrary: () -> Unit
 ) {
+    var clientIdInput by remember(state.oauthClientId) { mutableStateOf(state.oauthClientId) }
+    var clientSecretInput by remember(state.oauthClientSecret) { mutableStateOf(state.oauthClientSecret) }
+    var showClientConfig by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1522,11 +1597,14 @@ private fun CarSettingsOverlay(
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.dp, Color(0xFF303030)),
             modifier = Modifier
-                .width(520.dp)
+                .width(560.dp)
+                .padding(vertical = 20.dp)
                 .clickable(enabled = false, onClick = {})
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
@@ -1550,6 +1628,176 @@ private fun CarSettingsOverlay(
                     }
                 }
                 HorizontalDivider(color = Color(0xFF2B2B2B))
+
+                // Google Account & YouTube Library (OAuth TV Device-Code Flow — works with or without GMS)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Google Account & YouTube Library",
+                        color = CarColors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    when {
+                        state.googleAccount != null -> {
+                            val label = state.googleAccount.displayName
+                                .ifBlank { state.googleAccount.email }
+                                .ifBlank { "Google Account Connected" }
+                            Text(
+                                text = "Signed in: $label (${state.userPlaylists.size} playlists)",
+                                color = CarColors.TextSecondary,
+                                fontSize = 12.sp
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    color = CarColors.Accent,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .carFocusable(RoundedCornerShape(8.dp), onSyncGoogleLibrary)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text("Sync Library & Playlists", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                                Surface(
+                                    color = Color(0xFF333333),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .height(38.dp)
+                                        .carFocusable(RoundedCornerShape(8.dp), onSignOutGoogle)
+                                ) {
+                                    Box(modifier = Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                                        Text("Sign Out", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                        state.deviceCodePrompt != null -> {
+                            Text(
+                                text = "On your phone, open ${state.deviceCodePrompt.verificationUrl} and enter:",
+                                color = CarColors.TextSecondary,
+                                fontSize = 12.sp
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = state.deviceCodePrompt.userCode,
+                                    color = Color.White,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 3.sp
+                                )
+                                Surface(
+                                    color = Color(0xFF333333),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .carFocusable(RoundedCornerShape(8.dp), onCancelGoogleSignIn)
+                                ) {
+                                    Box(modifier = Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                                        Text("Cancel", color = Color.White, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            Text(
+                                text = state.authStatusMessage
+                                    ?: "Sign in via phone code to sync your playlists & subscriptions (no Play Services required).",
+                                color = CarColors.TextSecondary,
+                                fontSize = 12.sp
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    color = CarColors.Accent,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .carFocusable(RoundedCornerShape(8.dp), onStartGoogleSignIn)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text("Sign in with Google", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                                Surface(
+                                    color = Color(0xFF333333),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .height(38.dp)
+                                        .carFocusable(RoundedCornerShape(8.dp)) { showClientConfig = !showClientConfig }
+                                ) {
+                                    Box(modifier = Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                                        Text("OAuth Client", color = Color.White, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                            if (showClientConfig || state.oauthClientId.isBlank()) {
+                                OutlinedTextField(
+                                    value = clientIdInput,
+                                    onValueChange = { clientIdInput = it },
+                                    label = { Text("Google OAuth TV Client ID", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedBorderColor = CarColors.Accent,
+                                        unfocusedBorderColor = Color(0xFF444444),
+                                        focusedLabelColor = CarColors.TextSecondary,
+                                        unfocusedLabelColor = CarColors.TextSecondary
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = clientSecretInput,
+                                    onValueChange = { clientSecretInput = it },
+                                    label = { Text("Client Secret (if required)", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedBorderColor = CarColors.Accent,
+                                        unfocusedBorderColor = Color(0xFF444444),
+                                        focusedLabelColor = CarColors.TextSecondary,
+                                        unfocusedLabelColor = CarColors.TextSecondary
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Surface(
+                                    color = Color(0xFF2E2E2E),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(36.dp)
+                                        .carFocusable(RoundedCornerShape(8.dp)) {
+                                            onSaveOAuthCredentials(clientIdInput, clientSecretInput)
+                                            showClientConfig = false
+                                        }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text("Save OAuth Credentials", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 SettingsToggleRow(
                     title = "Audio-Only Mode",
