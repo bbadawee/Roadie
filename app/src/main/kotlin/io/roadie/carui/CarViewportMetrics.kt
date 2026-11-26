@@ -11,7 +11,12 @@ data class CarViewportMetrics(
     val heightDp: Float
 ) {
     val contentScale: Float
-        get() = if (widthDp <= 0f || heightDp <= 0f) 1f else min(1f, min(widthDp / 1024f, heightDp / 600f))
+        get() {
+            if (!widthDp.isFinite() || !heightDp.isFinite() || widthDp <= 0f || heightDp <= 0f) {
+                return 1f
+            }
+            return min(1f, min(widthDp / 1024f, heightDp / 600f)).coerceIn(0.25f, 1f)
+        }
 
     val logicalWidthDp: Float
         get() = if (contentScale > 0f) widthDp / contentScale else widthDp

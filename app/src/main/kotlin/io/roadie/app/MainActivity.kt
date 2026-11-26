@@ -14,8 +14,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        handleIncomingIntent(intent)
+        runCatching { enableEdgeToEdge() }
+        runCatching { handleIncomingIntent(intent) }
         setContent {
             RoadieApp(viewModel = viewModel)
         }
