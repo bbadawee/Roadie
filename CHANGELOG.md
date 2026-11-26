@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- **Google OAuth TV Device-Code Sign-In:** Sign in via `google.com/device` on your phone without requiring Google Play Services on the head unit
+- **YouTube Playlists & Subscriptions Sync:** Browse your personal playlists in the `Saved` tab and sync subscriptions
+- **Watch Resolution Selector & Saved Bookmarks:** Pick `Auto / 1080p / 720p / 480p / 360p` and save videos locally via Room DB
+- **Head-Unit Release & Startup Fixes:** Hardened R8/ProGuard rules, safe `enableEdgeToEdge()`, finite viewport scaling, and split-screen tests
+
+## 0.3.0
+
+- **DeArrow, Chapters, Queue & Companion:** Clean titles, clickable description chapters, Up-Next queue, Takeout/NewPipe import, Audio-Only, Hotspot Saver, and Wi-Fi Companion
+
 ## 0.2.0
 
 - **Resume Playback Position:** Automatically saves and resumes `lastPositionMs` per video via Room DB
